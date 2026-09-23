@@ -2074,7 +2074,10 @@
         <div class="email-form">
           <input type="text" id="email-input" placeholder="Email Address" required>
           <input type="password" id="password-input" placeholder="Password" required>
-          <button class="login-btn btn-email" id="btn-email-login">Sign In</button>
+          <div style="display: flex; gap: 10px; margin-top: 5px;">
+            <button class="login-btn btn-email" id="btn-email-login" style="flex: 1;">Sign In</button>
+            <button class="login-btn btn-email" id="btn-email-signup" style="flex: 1; background: #2c2c2e;">Sign Up</button>
+          </div>
           <a href="#" id="forgot-password-link"
             style="color: rgba(255,255,255,0.7); font-size: 12px; text-align: center; margin-top: 5px; text-decoration: none;">Forgot
             Password?</a>
@@ -2181,6 +2184,29 @@
           }
         }
       });
+
+      // Email Sign Up
+      const signupBtn = document.getElementById('btn-email-signup');
+      if (signupBtn) {
+        signupBtn.addEventListener('click', async () => {
+          const email = emailInput.value;
+          const password = passwordInput.value;
+
+          if (!email || !password) {
+            errorMsg.textContent = "Please enter email and password";
+            return;
+          }
+
+          const { data, error } = await supabase.auth.signUp({ email, password });
+          if (error) {
+            errorMsg.textContent = error.message;
+          } else {
+            errorMsg.style.color = "#4ade80";
+            errorMsg.textContent = "Account created! Check your email to verify (or try logging in if auto-confirm is on).";
+            setTimeout(() => { errorMsg.style.color = "#ff5f57"; errorMsg.textContent = ""; }, 5000);
+          }
+        });
+      }
 
       // Forgot Password Logic
       const forgotPwdLink = document.getElementById('forgot-password-link');
