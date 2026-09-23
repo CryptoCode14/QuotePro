@@ -2083,26 +2083,12 @@
       </div>
     </div>
 
-    <!-- Firebase SDKs -->
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script type="module">
-      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-      import { getAuth, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-      import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-
-      // Firebase Configuration
-      const firebaseConfig = {
-        apiKey: "AIzaSyCM_0IRA3n2q0hf5VvY3R91tKBxFwIsi9o",
-        authDomain: "grand-valley-quotepro.firebaseapp.com",
-        projectId: "grand-valley-quotepro",
-        storageBucket: "grand-valley-quotepro.firebasestorage.app",
-        messagingSenderId: "985984728592",
-        appId: "1:985984728592:web:fe4ec6d314a3fcd7669495"
-      };
-
-      // Initialize Firebase
-      const app = initializeApp(firebaseConfig);
-      const auth = getAuth(app);
-      const db = getFirestore(app);
+      const SUPABASE_URL = "https://ymwinetfkporjwxjkfgo.supabase.co";
+      const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inltd2luZXRma3Bvcmp3eGprZmdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMjY2MjYsImV4cCI6MjA5NjYwMjYyNn0.MtQziHbMQegw4A_cdEkR895cgmNT8MsPKUxWf7phP9I";
+      const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
       let currentUser = null; // Track current user for sync logic
 
@@ -2114,42 +2100,41 @@
       const errorMsg = document.getElementById('login-error');
 
       // Auth State Listener
-      onAuthStateChanged(auth, async (user) => {
-        if (user) {
-          // User is signed in
-          console.log("User signed in:", user.email);
-          currentUser = user;
+      supabase.auth.onAuthStateChange(async (event, session) => {
+        if (session && session.user) {
+          console.log("User signed in:", session.user.email);
+          currentUser = session.user;
           loginOverlay.classList.add('hidden');
-          updateAuthUI(user);
-
-          // Load specific Cloud settings for this user
-          await loadSettingsFromCloud(user.uid);
-
+          updateAuthUI(currentUser);
+          await loadSettingsFromCloud(currentUser.id);
         } else {
-          // User is signed out
           console.log("User signed out");
           currentUser = null;
           loginOverlay.classList.remove('hidden');
-
-          // Should we reset to defaults? Maybe not, keep generic.
         }
       });
 
-      // --- Firestore Settings Sync ---
+      // Initial session check
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session && session.user) {
+          currentUser = session.user;
+          loginOverlay.classList.add('hidden');
+          updateAuthUI(currentUser);
+          loadSettingsFromCloud(currentUser.id);
+        }
+      });
+
+      // --- Supabase Settings Sync ---
 
       async function loadSettingsFromCloud(uid) {
         try {
-          const docRef = doc(db, "users", uid);
-          const docSnap = await getDoc(docRef);
-
-          if (docSnap.exists()) {
-            const cloudSettings = docSnap.data().settings;
-            if (cloudSettings && window.currentSettings && window.applySettings) {
+          const { data, error } = await supabase.from('user_settings').select('settings').eq('id', uid).single();
+          if (data && data.settings) {
+            const cloudSettings = data.settings;
+            if (window.currentSettings && window.applySettings) {
               console.log("Loaded settings from cloud.");
-              // Mutate the global settings object
               Object.assign(window.currentSettings, cloudSettings);
               window.applySettings();
-              // Update local storage to match cloud
               localStorage.setItem('calculatorSettings', JSON.stringify(window.currentSettings));
             }
           } else {
@@ -2157,33 +2142,28 @@
           }
         } catch (e) {
           console.error("Error loading cloud settings:", e);
-          // Fallback to local is already done at boot
         }
       }
 
       async function saveSettingsToCloud() {
         if (!currentUser || !window.currentSettings) return;
 
-        const uid = currentUser.uid;
-        let settingsToSave = { ...window.currentSettings };
-
         try {
-          await setDoc(doc(db, "users", uid), {
-            settings: settingsToSave,
+          const { error } = await supabase.from('user_settings').upsert({
+            id: currentUser.id,
             email: currentUser.email,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-          console.log("Settings synced to cloud via Firestore.");
+            settings: window.currentSettings,
+            updated_at: new Date().toISOString()
+          });
+          if (error) throw error;
+          console.log("Settings synced to cloud via Supabase.");
         } catch (e) {
-          if (e.name === 'FirebaseError' && e.code === 'firestore/resource-exhausted') {
-            alert("Settings sync failed: Data too large (probably the image). trying to compress more or remove image.");
-          }
           console.error("Error saving settings to cloud:", e);
         }
       }
 
       // Email Login
-      emailBtn.addEventListener('click', () => {
+      emailBtn.addEventListener('click', async () => {
         const email = emailInput.value;
         const password = passwordInput.value;
 
@@ -2192,23 +2172,20 @@
           return;
         }
 
-        // Removed "Signing in..." status text as requested
-
-        signInWithEmailAndPassword(auth, email, password)
-          .catch((error) => {
-            // Display helpful error messages without creating new accounts
-            if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-              errorMsg.textContent = "Invalid email or password.";
-            } else {
-              errorMsg.textContent = error.message;
-            }
-          });
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+          if (error.message.includes('Invalid login')) {
+            errorMsg.textContent = "Invalid email or password.";
+          } else {
+            errorMsg.textContent = error.message;
+          }
+        }
       });
 
       // Forgot Password Logic
       const forgotPwdLink = document.getElementById('forgot-password-link');
       if (forgotPwdLink) {
-        forgotPwdLink.addEventListener('click', (e) => {
+        forgotPwdLink.addEventListener('click', async (e) => {
           e.preventDefault();
           const email = emailInput.value;
           if (!email) {
@@ -2216,18 +2193,17 @@
             return;
           }
 
-          sendPasswordResetEmail(auth, email)
-            .then(() => {
-              errorMsg.style.color = "#4ade80"; // Success green
-              errorMsg.textContent = "Password reset email sent!";
-              setTimeout(() => {
-                errorMsg.style.color = "#ff5f57";
-                errorMsg.textContent = "";
-              }, 5000);
-            })
-            .catch((error) => {
-              errorMsg.textContent = error.message;
-            });
+          const { error } = await supabase.auth.resetPasswordForEmail(email);
+          if (error) {
+            errorMsg.textContent = error.message;
+          } else {
+            errorMsg.style.color = "#4ade80"; // Success green
+            errorMsg.textContent = "Password reset email sent!";
+            setTimeout(() => {
+              errorMsg.style.color = "#ff5f57";
+              errorMsg.textContent = "";
+            }, 5000);
+          }
         });
       }
 
@@ -2237,14 +2213,9 @@
       };
 
       // Toggle Signout behavior
-      window.firebaseLogout = () => {
-        signOut(auth).then(() => {
-          console.log("Signed out");
-          // Optional: Clear settings or keep last user's settings?
-          // We usually keep them or reset to default. 
-        }).catch((error) => {
-          console.error("Sign out error", error);
-        });
+      window.firebaseLogout = async () => {
+        await supabase.auth.signOut();
+        console.log("Signed out");
       };
 
 
