@@ -5,3 +5,4 @@ quotepro.db
 venv/
 .firebase/
 firebase-debug.log
+dist/
