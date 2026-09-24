@@ -1,7 +1,1 @@
-{
-  "version": 2,
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.js" },
-    { "source": "/(.*)", "destination": "/public/$1" }
-  ]
-}
+{"buildCommand":"npm run build","outputDirectory":"dist","rewrites":[{"destination":"/api/index.js","source":"/api/(.*)"},{"destination":"/index.html","source":"/(.*)"}],"version":2}
