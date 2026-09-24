@@ -9,7 +9,10 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider>
       <App />
-      <Toaster richColors closeButton position="top-center" />
+      <Toaster
+        position="bottom-center"
+        toastOptions={{ duration: 2600, className: "qp-toast" }}
+      />
     </ThemeProvider>
   </StrictMode>
 );
