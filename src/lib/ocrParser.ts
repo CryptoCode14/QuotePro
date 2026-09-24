@@ -23,15 +23,10 @@
  *   - Classification:
  *       door    = card whose header is a bare model code (no "PRICE FOR" prefix).
  *       windows = label contains WINDOW, GLASS, GLAZING, LITE, INSERT,
- *                 FULL VISION, FULL-VIEW or VISION.
+ *                 FULL VISION, FULL-VIEW, VISION, or FV+digits (e.g. FV200U —
+ *                 Weston confirmed 2026-09-24: Full Vision 200U is glass).
  *       etc     = everything else (FRAMING, COLOR, EXTRA STRUT, INSULATED,
  *                 TRACK MOUNT/LIFT, INSULATION, TOP SEAL, ...).
- *     NOTE — spec ambiguity resolved here: the spec's classification bullet lists
- *     "FV + digits (e.g. FV200U)" under windows, but the spec's own expected
- *     output #2 computes etc = 41.19 + 196.12 = 237.31 with the "PRICE FOR FV200U"
- *     card (196.12) in etc, and windows = 1338.61 (FULL VISION card only).
- *     The expected outputs are treated as authoritative, so FV200U-style labels
- *     classify as etc. (FV200U is a strut/accessory line, not a window package.)
  *   - Fallback: if no bare-model-code card exists (e.g. a cropped screenshot that
  *     cut the door card off), the card with the largest net price is treated as
  *     the door.
@@ -146,6 +141,8 @@ function centsFromDigits(digits: string): number | null {
 
 function classifyLabel(label: string): CardKind {
   const compact = label.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  // FV + digits (e.g. FV200U) = Full Vision glass — always windows.
+  if (/FV\d/.test(compact)) return "windows";
   return WINDOW_KEYWORDS.some((k) => compact.includes(k)) ? "windows" : "etc";
 }
 

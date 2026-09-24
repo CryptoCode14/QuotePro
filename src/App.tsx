@@ -32,12 +32,11 @@ import { parsePrices, type FillJob } from "@/lib/parse";
 import { supabase } from "@/lib/supabase";
 
 interface Settings {
-  discount: boolean;
   mode: "express" | "guided";
 }
 
 function loadStoredSettings(): Settings {
-  const base: Settings = { discount: true, mode: "express" };
+  const base: Settings = { mode: "express" };
   try {
     const cached = JSON.parse(
       localStorage.getItem(SETTINGS_STORAGE_KEY) ?? "null",
@@ -54,7 +53,6 @@ export default function App() {
   const [fields, setFields] = useState<Record<FieldKey, string>>({
     ...FIELD_DEFAULTS,
   });
-  const [discount, setDiscountState] = useState(true);
   const [mode, setModeState] = useState<"express" | "guided">("express");
   const [gstep, setGstepState] = useState(0);
   const [showEstimates, setShowEstimates] = useState(false);
@@ -85,8 +83,6 @@ export default function App() {
   /* ---------- mirrors (read inside timers / global listeners) ---------- */
   const fieldsRef = useRef(fields);
   fieldsRef.current = fields;
-  const discountRef = useRef(discount);
-  discountRef.current = discount;
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const userRef = useRef(user);
@@ -111,10 +107,7 @@ export default function App() {
     setTween((t) => ({ dur: animate ? TWEEN_MS : 0, seq: t.seq + 1 }));
   }, []);
 
-  const c = useMemo(
-    () => calc(parseInputs(fields), discount),
-    [fields, discount],
-  );
+  const c = useMemo(() => calc(parseInputs(fields)), [fields]);
 
   /* ---------- settings sync ---------- */
   const persistSettings = useCallback((next: Settings) => {
@@ -170,9 +163,6 @@ export default function App() {
 
   const applySettings = useCallback(
     (s: Settings) => {
-      const d = s.discount !== false;
-      discountRef.current = d;
-      setDiscountState(d);
       setMode(s.mode === "guided" ? "guided" : "express", true);
       refresh(false);
     },
@@ -456,16 +446,6 @@ export default function App() {
     [hideSolved, refresh],
   );
 
-  const toggleDiscount = useCallback(() => {
-    const nd = !discountRef.current;
-    discountRef.current = nd;
-    setDiscountState(nd);
-    const next: Settings = { ...settingsRef.current, discount: nd };
-    settingsRef.current = next;
-    persistSettings(next);
-    refresh(true);
-  }, [persistSettings, refresh]);
-
   const reset = useCallback(() => {
     setFields({ ...FIELD_DEFAULTS });
     clearTags();
@@ -485,7 +465,7 @@ export default function App() {
       refresh(true);
     }, 400);
     later(() => {
-      const before = calc(parseInputs(fieldsRef.current), discountRef.current);
+      const before = calc(parseInputs(fieldsRef.current));
       const { inst, fuel } = solvePricing(before);
       const solvedInputs = { ...parseInputs(fieldsRef.current), inst, fuel };
       setFields((f) => ({
@@ -494,7 +474,7 @@ export default function App() {
         fuel: fuel.toFixed(2),
       }));
       refresh(true);
-      const c2 = calc(solvedInputs, discountRef.current);
+      const c2 = calc(solvedInputs);
       setSolved({ margin: c2.margin, gap: Math.round(c2.gap) });
       later(() => setSolved(null), 4200);
       solvingRef.current = false;
@@ -518,7 +498,7 @@ export default function App() {
   };
 
   const copyApiCall = useCallback(() => {
-    const cc = calc(parseInputs(fieldsRef.current), discountRef.current);
+    const cc = calc(parseInputs(fieldsRef.current));
     const curl = apiCurl(apiPayload(cc));
     const done = () => showToast("API CALL COPIED — PASTE IT ANYWHERE");
     if (navigator.clipboard?.writeText) {
@@ -666,9 +646,7 @@ export default function App() {
           />
           <ActionsCard
             solving={solving}
-            discount={discount}
             onSolve={solveSequence}
-            onToggleDiscount={toggleDiscount}
             onReset={reset}
             onCopyApi={copyApiCall}
             dim={dim(2)}

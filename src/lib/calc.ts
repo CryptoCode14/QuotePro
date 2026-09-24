@@ -33,8 +33,9 @@ export interface CalcResult extends PriceInputs {
   gap: number;
 }
 
-/** The v5 `calc()` body, verbatim — only the input source changed (record, not DOM). */
-export function calc(p: PriceInputs, discount: boolean): CalcResult {
+/** Pricing engine — the v5 `calc()` body. 2026-09-24: the legacy 0.99 "1% DISC"
+ *  factor is dead per Weston. doubleCost is exactly 2 × after-multiplier. */
+export function calc(p: PriceInputs): CalcResult {
   const door = p.door;
   const win = p.windows;
   const etc = p.etc;
@@ -53,7 +54,7 @@ export function calc(p: PriceInputs, discount: boolean): CalcResult {
   const expenses = afterMult + overhead;
   const net = grandTotal - expenses;
   const margin = grandTotal > 0 ? (net / grandTotal) * 100 : 0;
-  const dc = 2 * (discount ? 0.99 : 1) * afterMult;
+  const dc = 2 * afterMult;
   const gap = grandTotal - dc;
   return {
     door, windows: win, etc, mult, base, pct, inst, fuel,

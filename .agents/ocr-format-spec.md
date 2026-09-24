@@ -35,8 +35,9 @@ contract the new OCR intake parser must handle.
 ## Expected outputs (net prices)
 1. 9208 9'x8' Lustra Black, slim windows → door 1191.30, windows 0.00,
    etc 903.83 + 145.77 + 52.19 = 1101.79
-2. 3200 16'2"x10' full vision → door 2461.59, windows 1338.61,
-   etc 41.19 + 196.12 = 237.31
+2. 3200 16'2"x10' full vision → door 2461.59,
+   windows 1338.61 + 196.12 (FV200U = Full Vision glass, per Weston 2026-09-24) = 1534.73,
+   etc 41.19
 3. 3150 10'x10' solid (strut card FIRST) → door 1244.32, windows 0.00,
    etc 94.30 + 78.96 = 173.26
 4. T50S 9'x7' solid → door 475.50, windows 0.00, etc 24.34

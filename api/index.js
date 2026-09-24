@@ -59,10 +59,12 @@ function calculateQuote(inputs) {
 
 function calculateCostAnalysis(inputs) {
     const results = {};
-    const discountRate = 0.99; // Assume discount enabled by default for API
-    results.doorWithDiscount = (inputs.garageDoor * inputs.multiplier) * discountRate;
-    results.windowsWithDiscount = (inputs.windows * inputs.multiplier) * discountRate;
-    results.etcWithDiscount = (inputs.etc * inputs.multiplier) * discountRate;
+    // 2026-09-24: the legacy 0.99 "1% DISC" factor is dead per Weston.
+    // Double cost is exactly 2 × after-multiplier cost. Field names kept
+    // stable for existing consumers.
+    results.doorWithDiscount = inputs.garageDoor * inputs.multiplier;
+    results.windowsWithDiscount = inputs.windows * inputs.multiplier;
+    results.etcWithDiscount = inputs.etc * inputs.multiplier;
     results.totalCostWithDiscount = results.doorWithDiscount + results.windowsWithDiscount + results.etcWithDiscount;
     results.doubleCost = results.totalCostWithDiscount * 2;
     results.targetGap = calculateQuote(inputs).grandTotal - results.doubleCost;
