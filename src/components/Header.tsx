@@ -1,20 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  Copy,
-  List,
-  LogOut,
-  Monitor,
-  Moon,
-  Printer,
-  Sun,
-} from "lucide-react";
+import { CircleUserRound, Copy, List, Moon, Printer, Sun } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 interface HeaderProps {
-  mode: "express" | "guided";
-  onMode: (m: "express" | "guided") => void;
   user: User | null;
   onSignOut: () => void;
   showEstimates: boolean;
@@ -23,74 +12,30 @@ interface HeaderProps {
   onPrint: () => void;
 }
 
+const iconBtn =
+  "flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface hover:text-ink";
+
 function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
-  const opts = [
-    { v: "light" as const, icon: Sun, label: "Light" },
-    { v: "dark" as const, icon: Moon, label: "Dark" },
-    { v: "system" as const, icon: Monitor, label: "System" },
-  ];
+  const { resolvedTheme, setTheme } = useTheme();
+  const dark = resolvedTheme === "dark";
   return (
-    <div className="seg seg-tight" role="tablist" aria-label="Theme">
-      {opts.map(({ v, icon: Icon, label }) => (
-        <button
-          key={v}
-          role="tab"
-          aria-selected={theme === v}
-          title={label}
-          className={cn(theme === v && "on")}
-          onClick={() => setTheme(v)}
-        >
-          <Icon size={14} strokeWidth={1.75} aria-label={label} />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ProfileMenu({ user, onSignOut }: { user: User; onSignOut: () => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, [open ]);
-
-  return (
-    <div
-      className="profile-container"
-      ref={ref}
-      style={{ display: "block" }}
-      onClick={(e) => e.stopPropagation()}
+    <button
+      type="button"
+      onClick={() => setTheme(dark ? "light" : "dark")}
+      title={dark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+      className={iconBtn}
     >
-      <button
-        className="profile-trigger"
-        aria-label="Account"
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((o) => !o);
-        }}
-      >
-        {(user.email ?? "?").charAt(0).toUpperCase()}
-      </button>
-      {open && (
-        <div className="profile-dropdown active">
-          <div className="profile-email">{user.email}</div>
-          <button className="profile-btn" onClick={onSignOut}>
-            <LogOut size={13} strokeWidth={2} /> SIGN OUT
-          </button>
-        </div>
+      {dark ? (
+        <Sun size={16} strokeWidth={1.75} />
+      ) : (
+        <Moon size={16} strokeWidth={1.75} />
       )}
-    </div>
+    </button>
   );
 }
 
 export function Header({
-  mode,
-  onMode,
   user,
   onSignOut,
   showEstimates,
@@ -99,57 +44,59 @@ export function Header({
   onPrint,
 }: HeaderProps) {
   return (
-    <header className="qp-header">
-      <div className="brandmark">
-        <img className="hlogo" src="/large-logo.png" alt="QuotePro logo" />
-        <div className="wordmark">
-          QUOTE<span className="p">PRO</span>
-          <small>EXPRESS ESTIMATING</small>
+    <header className="no-print sticky top-0 z-40 h-14 border-b border-hairline bg-bg/80 backdrop-blur">
+      <div className="mx-auto flex h-full max-w-[1560px] items-center justify-between gap-4 px-4 sm:px-6">
+        <div className="flex min-w-0 items-baseline gap-2.5">
+          <span className="font-sans text-[15px] font-semibold text-ink">
+            QuotePro
+          </span>
+          <span className="hidden truncate text-[13px] text-muted sm:inline">
+            Grand Valley Garage Doors
+          </span>
         </div>
-      </div>
 
-      <div className="seg" role="tablist" aria-label="Mode">
-        <button
-          role="tab"
-          aria-selected={mode === "express"}
-          className={cn(mode === "express" && "on")}
-          onClick={() => onMode("express")}
-        >
-          EXPRESS
-        </button>
-        <button
-          role="tab"
-          aria-selected={mode === "guided"}
-          className={cn(mode === "guided" && "on")}
-          onClick={() => onMode("guided")}
-        >
-          GUIDED
-        </button>
-      </div>
-
-      <div className="hctl">
-        <ThemeToggle />
-        <button
-          className={cn("btn ghost hbtn", showEstimates && "on")}
-          onClick={onToggleEstimates}
-          title="Open estimate list"
-        >
-          <List size={15} strokeWidth={1.75} />
-          <span className="hbtn-lbl">LIST</span>
-        </button>
-        <button
-          className="btn ghost hbtn"
-          onClick={onCopyApi}
-          title="Copy this quote as an API call"
-        >
-          <Copy size={15} strokeWidth={1.75} />
-          <span className="hbtn-lbl lbl-api">API</span>
-        </button>
-        <button className="btn ghost hbtn hbtn-print" onClick={onPrint} title="Print">
-          <Printer size={15} strokeWidth={1.75} />
-          <span className="hbtn-lbl">PRINT</span>
-        </button>
-        {user && <ProfileMenu user={user} onSignOut={onSignOut} />}
+        <div className="flex items-center gap-0.5">
+          <ThemeToggle />
+          <button
+            type="button"
+            onClick={onToggleEstimates}
+            title="Estimates"
+            aria-label="Estimates"
+            aria-pressed={showEstimates}
+            className={cn(iconBtn, showEstimates && "text-accent")}
+          >
+            <List size={16} strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            onClick={onPrint}
+            title="Print"
+            aria-label="Print"
+            className={iconBtn}
+          >
+            <Printer size={16} strokeWidth={1.75} />
+          </button>
+          <button
+            type="button"
+            onClick={onCopyApi}
+            title="Copy as API call"
+            aria-label="Copy as API call"
+            className={iconBtn}
+          >
+            <Copy size={16} strokeWidth={1.75} />
+          </button>
+          {user && (
+            <button
+              type="button"
+              onClick={onSignOut}
+              title={user.email ?? "Sign out"}
+              aria-label={`Sign out${user.email ? ` (${user.email})` : ""}`}
+              className={iconBtn}
+            >
+              <CircleUserRound size={17} strokeWidth={1.75} />
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );

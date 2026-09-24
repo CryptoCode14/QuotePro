@@ -54,56 +54,82 @@ export function AuthGate({ open, onLogin, onSignup, onReset }: AuthGateProps) {
     }
   };
 
+  const linkBtn =
+    "flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-[0.06em] text-muted transition-colors duration-150 hover:text-ink disabled:opacity-50";
+
   return (
-    <div id="login-overlay" role="dialog" aria-modal="true" aria-label="Sign in">
-      <div className="login-card">
-        <img src="/large-logo.png" alt="QuotePro logo" />
-        <div className="login-title">QuotePro</div>
-        <div className="login-sub">GRAND VALLEY GARAGE DOORS</div>
-        <Input
-          type="text"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email address"
-          autoComplete="email"
-          className="login-input"
-          aria-label="Email address"
-        />
-        <Input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          autoComplete="current-password"
-          className="login-input"
-          aria-label="Password"
-          onKeyDown={(e) => {
-            if (e.key === "Enter") run(() => onLogin(email, password));
-          }}
-        />
+    <div
+      id="login-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Sign in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-bg p-4"
+    >
+      <div className="w-full max-w-sm rounded-2xl border border-hairline bg-surface p-8">
+        <div className="mb-7">
+          <div className="font-sans text-[22px] font-semibold text-ink">
+            QuotePro
+          </div>
+          <div className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+            Grand Valley Garage Doors
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <Input
+            type="text"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email address"
+            autoComplete="email"
+            aria-label="Email address"
+            className="focus-visible:border-accent focus-visible:ring-accent/30"
+          />
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            autoComplete="current-password"
+            aria-label="Password"
+            className="focus-visible:border-accent focus-visible:ring-accent/30"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") run(() => onLogin(email, password));
+            }}
+          />
+        </div>
+
         <div
-          className={cn("error-msg", errorOk && "ok")}
+          className={cn(
+            "mt-3 min-h-[20px] text-[13px]",
+            errorOk ? "text-ok" : "text-bad",
+          )}
           role={error ? "alert" : undefined}
         >
           {error || "\u00A0"}
         </div>
+
         <button
-          className="btn primary abtn"
+          type="button"
           onClick={() => run(() => onLogin(email, password))}
           disabled={busy}
+          className="mt-1 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent text-[13px] font-semibold uppercase tracking-[0.06em] text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
         >
           <LogIn size={15} strokeWidth={2} aria-hidden /> SIGN IN
         </button>
-        <div className="login-links">
+
+        <div className="mt-5 flex items-center justify-between">
           <button
-            className="linkbtn"
+            type="button"
+            className={linkBtn}
             onClick={() => run(() => onSignup(email, password))}
             disabled={busy}
           >
             <UserPlus size={13} strokeWidth={2} aria-hidden /> CREATE ACCOUNT
           </button>
           <button
-            className="linkbtn"
+            type="button"
+            className={linkBtn}
             onClick={() => run(() => onReset(email))}
             disabled={busy}
           >

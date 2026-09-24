@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Check, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Eyebrow } from "@/components/primitives";
 import { APPS_SCRIPT_URL, FILE_ID } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
@@ -113,114 +113,182 @@ export function EstimatesView() {
   const visible = rows.slice(startIndex).map((r, k) => ({ row: r, i: startIndex + k }));
 
   return (
-    <section id="view-estimates" aria-label="Estimate list">
-      <div className="card">
-        <div className="microlabel">
-          ESTIMATE LIST <span className="mlsub">— synced from your tracker</span>
+    <section
+      id="view-estimates"
+      aria-label="Estimate list"
+      className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <Eyebrow>Estimates</Eyebrow>
+          <p className="mt-1.5 text-[13px] text-muted">
+            Synced from your tracker
+          </p>
         </div>
-        <div className="estbar">
-          <span className="statusline">{msg}</span>
-          <button className="btn ghost sbtn" onClick={listEstimates}>
-            <RefreshCw size={14} strokeWidth={2} /> REFRESH
-          </button>
-        </div>
-        <div className="esttable">
-          <table>
-            <thead>
+        <button
+          type="button"
+          onClick={listEstimates}
+          title="Refresh"
+          aria-label="Refresh estimates"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface hover:text-ink"
+        >
+          <RefreshCw size={15} strokeWidth={1.75} />
+        </button>
+      </div>
+
+      <p role="status" className="mt-2 font-num text-[12px] text-muted">
+        {msg}
+      </p>
+
+      <div className="mt-4 overflow-hidden rounded-2xl border border-hairline bg-surface">
+        <table className="w-full text-left text-[14px]">
+          <thead>
+            <tr className="border-b border-hairline">
+              <th
+                className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted"
+                style={{ width: "40%" }}
+              >
+                Name
+              </th>
+              <th
+                className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted"
+                style={{ width: "30%" }}
+              >
+                Status
+              </th>
+              <th
+                className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-[0.08em] text-muted"
+                style={{ width: "30%" }}
+              >
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.length === 0 && (
               <tr>
-                <th style={{ width: "40%" }}>Name</th>
-                <th style={{ width: "30%" }}>Status</th>
-                <th style={{ width: "30%" }}>Actions</th>
+                <td
+                  colSpan={3}
+                  className="px-4 py-10 text-center text-[13px] text-muted"
+                >
+                  No estimates found.
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {visible.length === 0 && (
-                <tr>
-                  <td colSpan={3} style={{ textAlign: "center" }}>
-                    No estimates found.
-                  </td>
-                </tr>
-              )}
-              {visible.map(({ row, i }) => (
-                <tr key={i} id={`row-${i}`}>
-                  <td>
-                    {editing === i ? (
-                      <Input
-                        value={editName}
-                        onChange={(e) => setEditName(e.target.value)}
-                        aria-label="Estimate name"
-                      />
-                    ) : (
-                      row[0] || ""
-                    )}
-                  </td>
-                  <td>
-                    {editing === i ? (
-                      <Input
-                        value={editStatus}
-                        onChange={(e) => setEditStatus(e.target.value)}
-                        aria-label="Estimate status"
-                      />
-                    ) : (
-                      <span className="status-badge">{row[1] || "Pending"}</span>
-                    )}
-                  </td>
-                  <td>
+            )}
+            {visible.map(({ row, i }) => (
+              <tr
+                key={i}
+                id={`row-${i}`}
+                className="border-b border-hairline transition-colors duration-150 last:border-0 hover:bg-bg/60"
+              >
+                <td className="px-4 py-3 text-ink">
+                  {editing === i ? (
+                    <Input
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      aria-label="Estimate name"
+                      className="h-10 bg-bg text-[14px]"
+                    />
+                  ) : (
+                    row[0] || ""
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  {editing === i ? (
+                    <Input
+                      value={editStatus}
+                      onChange={(e) => setEditStatus(e.target.value)}
+                      aria-label="Estimate status"
+                      className="h-10 bg-bg text-[14px]"
+                    />
+                  ) : (
+                    <span className="inline-flex items-center rounded-full bg-bg px-2.5 py-1 font-num text-[12px] text-ink">
+                      {row[1] || "Pending"}
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center justify-end gap-1">
                     {editing === i ? (
                       <>
                         <button
-                          className="action-btn"
-                          style={{ marginRight: 5 }}
+                          type="button"
                           onClick={() => saveEstimate(i)}
+                          title="Save"
+                          aria-label="Save estimate"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-ok transition-colors duration-150 hover:bg-bg"
                         >
-                          Save
+                          <Check size={15} strokeWidth={2} />
                         </button>
-                        <button className="action-btn" onClick={() => { setEditing(null); listEstimates(); }}>
-                          Cancel
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditing(null);
+                            listEstimates();
+                          }}
+                          title="Cancel"
+                          aria-label="Cancel editing"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-bg hover:text-ink"
+                        >
+                          <X size={15} strokeWidth={2} />
                         </button>
                       </>
                     ) : (
                       <>
                         <button
-                          className="action-btn"
-                          style={{ marginRight: 5 }}
+                          type="button"
                           onClick={() => startEdit(i)}
                           title="Edit estimate"
+                          aria-label="Edit estimate"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-bg hover:text-ink"
                         >
-                          <Pencil size={13} strokeWidth={2} /> Edit
+                          <Pencil size={14} strokeWidth={1.75} />
                         </button>
                         <button
-                          className="delete-btn"
+                          type="button"
                           onClick={() => deleteEstimate(i)}
                           title="Delete estimate"
+                          aria-label="Delete estimate"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-bg hover:text-bad"
                         >
-                          <Trash2 size={13} strokeWidth={2} /> Delete
+                          <Trash2 size={14} strokeWidth={1.75} />
                         </button>
                       </>
                     )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="estadd">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Client name..."
-            aria-label="New estimate name"
-          />
-          <Input
-            value={statusInput}
-            onChange={(e) => setStatusInput(e.target.value)}
-            placeholder="Status (optional)"
-            aria-label="New estimate status"
-          />
-          <Button variant="default" onClick={addEstimate} className={cn("est-add-btn")}>
-            <Plus size={15} strokeWidth={2} /> ADD
-          </Button>
-        </div>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Client name..."
+          aria-label="New estimate name"
+          className="bg-surface text-[14px]"
+        />
+        <Input
+          value={statusInput}
+          onChange={(e) => setStatusInput(e.target.value)}
+          placeholder="Status (optional)"
+          aria-label="New estimate status"
+          className="bg-surface text-[14px]"
+        />
+        <button
+          type="button"
+          onClick={addEstimate}
+          className={cn(
+            "flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-6",
+            "text-[13px] font-semibold uppercase tracking-[0.06em] text-white",
+            "transition-opacity duration-150 hover:opacity-90",
+          )}
+        >
+          <Plus size={15} strokeWidth={2} /> Add
+        </button>
       </div>
     </section>
   );
