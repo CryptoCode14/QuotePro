@@ -1,17 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check } from "lucide-react";
 import { toast } from "sonner";
 import type { User } from "@supabase/supabase-js";
 
 import { Header } from "@/components/Header";
-import { DoorPreview } from "@/components/DoorPreview";
-import { IntakeCard, type StatusState } from "@/components/IntakeCard";
-import { PricesCard, type FieldTag } from "@/components/PricesCard";
-import { TotalCard, TWEEN_MS } from "@/components/TotalCard";
-import { ActionsCard } from "@/components/ActionsCard";
+import { IntakePanel } from "@/components/IntakePanel";
+import { PricingWorkbench } from "@/components/PricingWorkbench";
+import { CostCheckPanel } from "@/components/CostCheckPanel";
+import { QuoteRail } from "@/components/QuoteRail";
 import { EstimatesView } from "@/components/EstimatesView";
 import { AuthGate, type AuthResult } from "@/components/AuthGate";
-import { OcrOverlay } from "@/components/OcrOverlay";
 
 import {
   apiCurl,
@@ -23,7 +20,6 @@ import {
 } from "@/lib/calc";
 import {
   FIELD_DEFAULTS,
-  SAMPLE_TEXT,
   SETTINGS_STORAGE_KEY,
   type FieldKey,
 } from "@/lib/constants";
@@ -31,6 +27,10 @@ import { parsePricingText, type ParsedCard } from "@/lib/ocrParser";
 import { parsePrices, type FillJob } from "@/lib/parse";
 import { supabase } from "@/lib/supabase";
 
+/** Hero-total tween duration (ms), carried over from v6. */
+const TWEEN_MS = 650;
+
+/** Legacy settings shape kept for cloud/localStorage compat. Guided mode is dead. */
 interface Settings {
   mode: "express" | "guided";
 }
@@ -53,38 +53,30 @@ export default function App() {
   const [fields, setFields] = useState<Record<FieldKey, string>>({
     ...FIELD_DEFAULTS,
   });
-  const [mode, setModeState] = useState<"express" | "guided">("express");
-  const [gstep, setGstepState] = useState(0);
   const [showEstimates, setShowEstimates] = useState(false);
-  const [tags, setTags] = useState<Record<"door" | "windows" | "etc", FieldTag>>({
-    door: null,
-    windows: null,
-    etc: null,
-  });
-  const [status, setStatus] = useState<StatusState>({
-    msg: "WAITING FOR INPUT…",
-    kind: "",
-  });
+  const [filledKeys, setFilledKeys] = useState<FieldKey[]>([]);
+  const [status, setStatus] = useState<{ msg: string; kind: "" | "ok" | "warn" }>(
+    { msg: "WAITING FOR INPUT…", kind: "" },
+  );
   const [imgPreview, setImgPreview] = useState<string | null>(null);
   const [ocr, setOcr] = useState<{ active: boolean; progress: number | null }>({
     active: false,
     progress: null,
   });
+  const [ocrError, setOcrError] = useState<string | null>(null);
   const [parsedCards, setParsedCards] = useState<ParsedCard[]>([]);
+  const [scanSeq, setScanSeq] = useState(0);
+  const [lastScanAt, setLastScanAt] = useState<string | null>(null);
   const [solving, setSolving] = useState(false);
   const [solved, setSolved] = useState<{ margin: number; gap: number } | null>(
     null,
   );
   const [user, setUser] = useState<User | null>(null);
-  const [doorStage, setDoorStage] = useState(-1);
-  const [pulseKey, setPulseKey] = useState(0);
   const [tween, setTween] = useState({ dur: 0, seq: 0 });
 
   /* ---------- mirrors (read inside timers / global listeners) ---------- */
   const fieldsRef = useRef(fields);
   fieldsRef.current = fields;
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
   const userRef = useRef(user);
   userRef.current = user;
   const settingsRef = useRef<Settings>(loadStoredSettings());
@@ -102,71 +94,22 @@ export default function App() {
     toast(msg, { duration: 2600 });
   }, []);
 
-  /** v5's `refresh(animate)` — re-runs the tween toward the latest calc. */
+  /** Re-runs the hero-total tween toward the latest calc. */
   const refresh = useCallback((animate = true) => {
     setTween((t) => ({ dur: animate ? TWEEN_MS : 0, seq: t.seq + 1 }));
   }, []);
 
   const c = useMemo(() => calc(parseInputs(fields)), [fields]);
 
-  /* ---------- settings sync ---------- */
-  const persistSettings = useCallback((next: Settings) => {
-    try {
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      /* ignore */
-    }
-    const u = userRef.current;
-    if (!u) return;
-    supabase
-      .from("user_settings")
-      .upsert({
-        id: u.id,
-        email: u.email,
-        settings: next,
-        updated_at: new Date().toISOString(),
-      })
-      .then(({ error }) => {
-        if (error) console.error("Error saving settings to cloud:", error);
-      });
-  }, []);
-
-  const setGstep = useCallback(
-    (s: number, silentToast = false) => {
-      const ns = Math.max(0, Math.min(2, s));
-      setGstepState(ns);
-      if (!silentToast) {
-        const labels = ["PASTE YOUR PRICES", "REVIEW THE PRICES", "QUOTE IS READY"];
-        showToast(`STEP ${ns + 1} / 3 — ${labels[ns]}`);
-      }
-    },
-    [showToast],
-  );
-
-  const setMode = useCallback(
-    (m: "express" | "guided", silent = false) => {
-      setModeState(m);
-      if (m === "guided") setGstep(0, true);
-      if (!silent) {
-        const next: Settings = { ...settingsRef.current, mode: m };
-        settingsRef.current = next;
-        persistSettings(next);
-        showToast(
-          m === "express"
-            ? "EXPRESS MODE — PASTE, DONE"
-            : "GUIDED MODE — ONE STEP AT A TIME",
-        );
-      }
-    },
-    [persistSettings, setGstep, showToast],
-  );
-
+  /* ---------- settings: cloud read (kept); guided mode ignored ---------- */
   const applySettings = useCallback(
     (s: Settings) => {
-      setMode(s.mode === "guided" ? "guided" : "express", true);
+      /* Guided mode is dead — always express, but keep the stored shape. */
+      const next: Settings = { ...settingsRef.current, ...s, mode: "express" };
+      settingsRef.current = next;
       refresh(false);
     },
-    [refresh, setMode],
+    [refresh],
   );
 
   const loadSettingsFromCloud = useCallback(
@@ -196,94 +139,65 @@ export default function App() {
     [applySettings],
   );
 
-  /* ---------- tags / fill sequence ---------- */
-  const clearTags = useCallback(() => {
-    setTags({ door: null, windows: null, etc: null });
-  }, []);
-
-  const fillAnimated = useCallback(
-    (key: FieldKey, val: number, done: () => void) => {
-      const v = val.toFixed(2);
-      setFields((f) => ({ ...f, [key]: "" }));
-      let j = 0;
-      const step = () => {
-        j += 1;
-        const slice = v.slice(0, j);
-        setFields((f) => ({ ...f, [key]: slice }));
-        if (j >= v.length) {
-          refresh(true);
-          done();
-        } else {
-          later(step, 26);
-        }
-      };
-      later(step, 26);
-    },
-    [later, refresh],
-  );
-
+  /* ---------- instant fill (replaces the v6 typewriter) ---------- */
   const runFillJobs = useCallback(
     (jobs: FillJob[], okMsg?: string) => {
-      setFields((f) => ({ ...f, mult: "1.00" }));
-      setStatus({
-        msg: `READING ${jobs.length} PRICE${jobs.length > 1 ? "S" : ""}…`,
-        kind: "",
+      const keys = jobs.map((j) => j.key);
+      setFields((f) => {
+        const n = { ...f, mult: "1.00" };
+        for (const j of jobs) n[j.key] = j.value.toFixed(2);
+        return n;
       });
-      let i = 0;
-      const next = () => {
-        if (i >= jobs.length) {
-          const meds = jobs.filter((jj) => jj.conf === "med");
-          if (meds.length) {
-            setStatus({
-              msg: `${jobs.length} PRICES READ · ${meds.length} NEED${
-                meds.length > 1 ? "" : "S"
-              } A LOOK`,
-              kind: "warn",
-            });
-            showToast("FILLED — CHECK THE AMBER FIELDS");
-          } else {
-            setStatus({
-              msg: okMsg ?? `${jobs.length} PRICES READ · MULTIPLIER → 1.00`,
-              kind: "ok",
-            });
-            showToast("VALUES FILLED — QUOTE UPDATED");
-          }
-          setPulseKey((k) => k + 1);
-          setDoorStage(3);
-          refresh(true);
-          if (modeRef.current === "guided") setGstep(1);
-          return;
-        }
-        const job = jobs[i++];
-        setTags((t) => ({
-          ...t,
-          [job.key]: job.conf === "high" ? "paste" : "check",
-        }));
-        fillAnimated(job.key, job.value, () => later(next, 140));
-      };
-      next();
+      setFilledKeys(keys);
+      later(() => setFilledKeys([]), 700); // 600ms flash, then clear
+      const meds = jobs.filter((jj) => jj.conf === "med");
+      if (meds.length) {
+        setStatus({
+          msg: `${jobs.length} PRICES READ · ${meds.length} NEED${
+            meds.length > 1 ? "" : "S"
+          } A LOOK`,
+          kind: "warn",
+        });
+        showToast("FILLED — VERIFY THE NUMBERS");
+      } else {
+        setStatus({
+          msg: okMsg ?? `${jobs.length} PRICES READ · MULTIPLIER → 1.00`,
+          kind: "ok",
+        });
+        showToast("VALUES FILLED — QUOTE UPDATED");
+      }
+      setScanSeq((s) => s + 1);
+      setLastScanAt(
+        new Date().toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        }),
+      );
+      refresh(true);
     },
-    [fillAnimated, later, refresh, setGstep, showToast],
+    [later, refresh, showToast],
   );
 
   const applyPaste = useCallback(
     (text: string) => {
-      clearTags();
       const jobs = parsePrices(text);
       if (!jobs.length) {
-        setStatus({ msg: "NO PRICES FOUND IN THAT PASTE — TRY AGAIN", kind: "warn" });
+        setStatus({
+          msg: "NO PRICES FOUND IN THAT PASTE — TRY AGAIN",
+          kind: "warn",
+        });
         showToast("NO PRICES FOUND");
         return;
       }
       runFillJobs(jobs);
     },
-    [clearTags, runFillJobs, showToast],
+    [runFillJobs, showToast],
   );
 
-  /* ---------- OCR intake (tesseract.js v7, hardened) ---------- */
+  /* ---------- OCR intake (tesseract.js, hardened; inline progress) ---------- */
   const handleOcrText = useCallback(
     (text: string) => {
-      clearTags();
       const r = parsePricingText(text);
       setParsedCards(r.cards);
       if (!r.cards.length) {
@@ -309,10 +223,12 @@ export default function App() {
       }
       runFillJobs(
         jobs,
-        `SCANNED ${r.cards.length} ITEM${r.cards.length > 1 ? "S" : ""} — MULTIPLIER → 1.00`,
+        `SCANNED ${r.cards.length} ITEM${
+          r.cards.length > 1 ? "S" : ""
+        } — MULTIPLIER → 1.00`,
       );
     },
-    [clearTags, runFillJobs, showToast],
+    [runFillJobs, showToast],
   );
 
   const runOCR = useCallback(
@@ -320,6 +236,7 @@ export default function App() {
       if (ocrBusyRef.current) return;
       ocrBusyRef.current = true;
       setOcr({ active: true, progress: null });
+      setOcrError(null);
       setStatus({ msg: "SCANNING SCREENSHOT…", kind: "" });
       try {
         /* Dynamic import so a failed worker/library load degrades gracefully. */
@@ -356,13 +273,14 @@ export default function App() {
         handleOcrText(String(res?.data?.text ?? ""));
       } catch (err) {
         console.error(err);
+        setOcrError("COULD NOT READ IMAGE — TRY AGAIN OR PASTE TEXT");
         setStatus({
           msg: "COULD NOT READ IMAGE — TRY AGAIN OR PASTE TEXT",
           kind: "warn",
         });
         showToast("OCR FAILED — PASTE THE TEXT INSTEAD");
       } finally {
-        /* ALWAYS dismiss the overlay — no stuck spinner, ever. */
+        /* ALWAYS dismiss — no stuck spinner, ever. */
         setOcr({ active: false, progress: null });
         ocrBusyRef.current = false;
       }
@@ -397,16 +315,15 @@ export default function App() {
     [applyPaste, handleImage],
   );
 
-  /* ---------- global paste-anywhere ---------- */
+  /* ---------- global paste-anywhere (never hijacks form fields) ---------- */
   const actionsRef = useRef({ applyPaste, handleImage });
   actionsRef.current = { applyPaste, handleImage };
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      /* Deliberate deviation from v5: never hijack paste inside form fields
-         (v5's global handler swallowed pastes into the login/estimate inputs). */
       const target = e.target as HTMLElement | null;
-      if (target?.closest?.("input, textarea, select, [contenteditable]")) return;
+      if (target?.closest?.("input, textarea, select, [contenteditable]"))
+        return;
       const cd = e.clipboardData;
       if (!cd) return;
       let handled = false;
@@ -440,20 +357,39 @@ export default function App() {
   const onField = useCallback(
     (k: FieldKey, v: string) => {
       setFields((f) => ({ ...f, [k]: v }));
+      setFilledKeys((ks) => ks.filter((kk) => kk !== k));
       refresh(true);
       hideSolved();
     },
     [hideSolved, refresh],
   );
 
+  const onCardClick = useCallback((kind: "door" | "windows" | "etc") => {
+    const el = document.getElementById(`field-${kind}`);
+    if (el) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      (el as HTMLInputElement).focus({ preventScroll: true });
+    }
+  }, []);
+
+  const onRescan = useCallback(() => {
+    setParsedCards([]);
+    setImgPreview(null);
+    setOcrError(null);
+    setStatus({ msg: "WAITING FOR INPUT…", kind: "" });
+  }, []);
+
   const reset = useCallback(() => {
     setFields({ ...FIELD_DEFAULTS });
-    clearTags();
+    setFilledKeys([]);
     setParsedCards([]);
+    setImgPreview(null);
+    setOcrError(null);
+    setLastScanAt(null);
     setStatus({ msg: "WAITING FOR INPUT…", kind: "" });
     refresh(true);
     showToast("RESET TO DEMO NUMBERS");
-  }, [clearTags, refresh, showToast]);
+  }, [refresh, showToast]);
 
   const solveSequence = useCallback(() => {
     if (solvingRef.current) return;
@@ -585,9 +521,8 @@ export default function App() {
     await supabase.auth.signOut();
   }, []);
 
-  /* ---------- boot sequence ---------- */
+  /* ---------- boot ---------- */
   useEffect(() => {
-    [0, 1, 2, 3].forEach((s) => later(() => setDoorStage(s), 350 + s * 420));
     later(() => {
       refresh(true);
       later(() => showToast("PASTE AN ISTORE SCREENSHOT OR PRICE TEXT"), 900);
@@ -598,15 +533,10 @@ export default function App() {
     };
   }, [later, refresh, showToast]);
 
-  /* ---------- render ---------- */
-  const guided = mode === "guided";
-  const dim = (step: number) => guided && gstep !== step;
-
+  /* ---------- render: the Command Deck ---------- */
   return (
-    <div id="app" className={guided ? "guided" : ""}>
+    <div id="app" className="min-h-screen bg-bg text-ink">
       <Header
-        mode={mode}
-        onMode={(m) => setMode(m)}
         user={user}
         onSignOut={handleSignOut}
         showEstimates={showEstimates}
@@ -615,63 +545,72 @@ export default function App() {
         onPrint={() => window.print()}
       />
 
+      {/* Mobile sticky total bar (below the sticky header) */}
+      {!showEstimates && (
+        <div className="no-print sticky top-14 z-30 border-b border-hairline bg-bg/90 backdrop-blur lg:hidden">
+          <div className="mx-auto flex max-w-[1560px] items-baseline justify-between px-4 py-2 sm:px-6">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+              Grand total
+            </span>
+            <span className="font-num text-xl font-semibold">
+              ${fmt$(c.grandTotal)}
+            </span>
+          </div>
+        </div>
+      )}
+
       {showEstimates ? (
         <EstimatesView />
       ) : (
-        <div id="layout">
-          <IntakeCard
-            imgPreview={imgPreview}
-            status={status}
-            parsedCards={parsedCards}
-            guided={guided}
-            onDropFiles={onDropFiles}
-            onDropzoneClick={() => showToast("PRESS ⌘V / CTRL+V TO PASTE")}
-            onSample={() => applyPaste(SAMPLE_TEXT)}
-            onContinue={() => setGstep(1)}
-            dim={dim(0)}
-          />
-          <PricesCard
-            fields={fields}
-            tags={tags}
-            onField={onField}
-            guided={guided}
-            onContinue={() => setGstep(2)}
-            dim={dim(1)}
-          />
-          <TotalCard
-            c={c}
-            tweenDur={tween.dur}
-            tweenSeq={tween.seq}
-            dim={dim(2)}
-          />
-          <ActionsCard
-            solving={solving}
-            onSolve={solveSequence}
-            onReset={reset}
-            onCopyApi={copyApiCall}
-            dim={dim(2)}
-          />
-          <DoorPreview stage={doorStage} pulseKey={pulseKey} />
-        </div>
+        <main className="mx-auto grid max-w-[1560px] grid-cols-1 gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[320px_minmax(0,1fr)_380px]">
+          {/* Left zone: on xl this wrapper disappears (contents) so intake
+              becomes its own sticky grid column; on lg it stacks intake +
+              pricing in column 1. */}
+          <div className="min-w-0 space-y-6 xl:contents">
+            <aside className="no-print min-w-0 xl:sticky xl:top-20 xl:self-start">
+              <IntakePanel
+                statusMsg={status.msg}
+                statusKind={status.kind}
+                ocrActive={ocr.active}
+                ocrProgress={ocr.progress}
+                ocrError={ocrError}
+                onDismissError={() => setOcrError(null)}
+                imgPreview={imgPreview}
+                cards={parsedCards}
+                scanSeq={scanSeq}
+                lastScanAt={lastScanAt}
+                onDropFiles={onDropFiles}
+                onDropzoneClick={() =>
+                  showToast("PRESS ⌘V / CTRL+V TO PASTE")
+                }
+                onCardClick={onCardClick}
+                onRescan={onRescan}
+              />
+            </aside>
+            <div className="min-w-0 space-y-6">
+              <PricingWorkbench
+                fields={fields}
+                onField={onField}
+                filledKeys={filledKeys}
+              />
+              <CostCheckPanel c={c} />
+            </div>
+          </div>
+          <aside className="min-w-0">
+            <QuoteRail
+              c={c}
+              tweenDur={tween.dur}
+              tweenSeq={tween.seq}
+              solving={solving}
+              solved={solved}
+              onSolve={solveSequence}
+              onReset={reset}
+              onCopyApi={copyApiCall}
+              onPrint={() => window.print()}
+            />
+          </aside>
+        </main>
       )}
-
-      {!showEstimates && (
-        <div id="mtotal" aria-hidden="true">
-          <span className="k">GRAND TOTAL</span>
-          <span id="mtotalnum">${fmt$(c.grandTotal)}</span>
-        </div>
-      )}
-
-      {solved && (
-        <div id="solved" className="show" role="status">
-          <Check size={14} strokeWidth={2.5} aria-hidden />
-          <span>
-            SOLVED — {solved.margin.toFixed(1)}% MARGIN · GAP ${solved.gap}
-          </span>
-        </div>
-      )}
-
-      <OcrOverlay active={ocr.active} progress={ocr.progress} />
 
       <AuthGate
         open={!user}
