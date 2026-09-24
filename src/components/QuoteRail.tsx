@@ -133,7 +133,7 @@ export function QuoteRail({
   });
 
   return (
-    <aside className="rounded-2xl border border-hairline bg-surface p-6 shadow-[0_8px_30px_rgb(0_0_0/0.06)] self-start lg:sticky lg:top-6 dark:shadow-none">
+    <aside className="rounded-2xl border border-hairline bg-surface p-6 shadow-[0_8px_30px_rgb(0_0_0/0.06)] self-start lg:sticky lg:top-20 dark:shadow-none">
       <div className="flex items-baseline justify-between gap-4">
         <Eyebrow>Quote</Eyebrow>
         <span className="text-[12px] text-muted">{dateStr}</span>
