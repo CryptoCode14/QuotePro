@@ -9,9 +9,10 @@
  *
  * GET  → paginated list of the caller's quotes, newest first.
  *        ?limit= (default 25, max 100), ?offset= (default 0).
- * POST → save a quote. Body: calculate inputs + optional note/source.
- *        The server recomputes all money fields with the frozen pricing math
- *        — client-supplied totals are never trusted. Returns { id }.
+ * POST → save a quote. Body: calculate inputs + optional note/source/
+ *        door_model/door_specs. The server recomputes all money fields with
+ *        the frozen pricing math — client-supplied totals are never trusted.
+ *        Returns { id }.
  */
 import {
   anonClient,
@@ -30,7 +31,8 @@ import { computeQuote, parseQuoteInputs } from "../_lib/inputs";
 
 const QUOTE_COLS =
   "id, created_at, door, windows, miscellaneous, multiplier, base, pct, " +
-  "installation, fuel, dealer_cost_total, double_cost, final_price, margin, source, note";
+  "installation, fuel, dealer_cost_total, double_cost, final_price, margin, source, note, " +
+  "door_model, door_specs";
 
 function queryInt(v: string | string[] | undefined, def: number): number {
   const s = Array.isArray(v) ? v[0] : v;
@@ -76,6 +78,14 @@ export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
       typeof body.note === "string" && body.note.trim() !== ""
         ? body.note.trim().slice(0, 1000)
         : null;
+    const doorModel =
+      typeof body.door_model === "string" && body.door_model.trim() !== ""
+        ? body.door_model.trim().slice(0, 64)
+        : null;
+    const doorSpecs =
+      typeof body.door_specs === "string" && body.door_specs.trim() !== ""
+        ? body.door_specs.trim().slice(0, 256)
+        : null;
 
     const { data, error } = await sb
       .from("quotes")
@@ -96,6 +106,8 @@ export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
           margin: q.margin,
           source,
           note,
+          door_model: doorModel,
+          door_specs: doorSpecs,
         },
       ])
       .select("id")

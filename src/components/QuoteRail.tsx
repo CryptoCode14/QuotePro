@@ -25,6 +25,10 @@ interface QuoteRailProps {
   onReset: () => void;
   onCopyApi: () => void;
   onPrint: () => void;
+  doorModel: string;
+  doorSpecs: string;
+  onDoorModel: (v: string) => void;
+  onDoorSpecs: (v: string) => void;
 }
 
 type PillTone = "ok" | "warn" | "bad";
@@ -106,6 +110,10 @@ export function QuoteRail({
   onReset,
   onCopyApi,
   onPrint,
+  doorModel,
+  doorSpecs,
+  onDoorModel,
+  onDoorSpecs,
 }: QuoteRailProps) {
   const hero = useTween(c.grandTotal, tweenDur, tweenSeq);
 
@@ -149,6 +157,8 @@ export function QuoteRail({
           installation: c.inst,
           fuel: c.fuel,
           source: "app",
+          door_model: doorModel.trim() || undefined,
+          door_specs: doorSpecs.trim() || undefined,
         }),
       });
       const json = await res.json().catch(() => null);
@@ -329,6 +339,33 @@ export function QuoteRail({
           <span>{saveMsg.text}</span>
         </div>
       )}
+
+      {/* Door identity — saved with the quote so it can be found later. */}
+      <div className="mt-6 rounded-xl bg-fill p-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+          Door for this quote
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <input
+            type="text"
+            value={doorModel}
+            onChange={(e) => onDoorModel(e.target.value)}
+            placeholder="Model · 3200"
+            aria-label="Door model"
+            maxLength={64}
+            className="h-10 rounded-lg bg-surface px-3 text-[13px] text-ink shadow-inset outline-none placeholder:text-muted/70 focus-visible:border-accent"
+          />
+          <input
+            type="text"
+            value={doorSpecs}
+            onChange={(e) => onDoorSpecs(e.target.value)}
+            placeholder="Size · 16×7 insul."
+            aria-label="Door specs"
+            maxLength={256}
+            className="h-10 rounded-lg bg-surface px-3 text-[13px] text-ink shadow-inset outline-none placeholder:text-muted/70 focus-visible:border-accent"
+          />
+        </div>
+      </div>
 
       <div className="mt-2 flex items-center gap-1">
         <GhostBtn icon={RotateCcw} label="Reset" onClick={onReset} />
