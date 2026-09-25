@@ -1,13 +1,10 @@
-import { CircleUserRound, Copy, List, Moon, Printer, Sun } from "lucide-react";
+import { CircleUserRound, Copy, Moon, Printer, Sun } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { useTheme } from "@/lib/theme";
-import { cn } from "@/lib/utils";
 
 interface HeaderProps {
   user: User | null;
   onSignOut: () => void;
-  showEstimates: boolean;
-  onToggleEstimates: () => void;
   onCopyApi: () => void;
   onPrint: () => void;
 }
@@ -38,14 +35,14 @@ function ThemeToggle() {
 export function Header({
   user,
   onSignOut,
-  showEstimates,
-  onToggleEstimates,
   onCopyApi,
   onPrint,
 }: HeaderProps) {
   return (
     <header className="no-print sticky top-0 z-40 h-14 border-b border-hairline bg-bg/80 backdrop-blur">
-      <div className="mx-auto flex h-full max-w-[1560px] items-center justify-between gap-4 px-4 sm:px-6">
+      {/* Full-bleed: content rides the viewport edges, never inset to the
+          content column. */}
+      <div className="flex h-full items-center justify-between gap-4 px-4 sm:px-6">
         <div className="flex min-w-0 items-baseline gap-2.5">
           <span className="font-sans text-[15px] font-semibold text-ink">
             QuotePro
@@ -57,16 +54,6 @@ export function Header({
 
         <div className="flex items-center gap-0.5">
           <ThemeToggle />
-          <button
-            type="button"
-            onClick={onToggleEstimates}
-            title="Estimates"
-            aria-label="Estimates"
-            aria-pressed={showEstimates}
-            className={cn(iconBtn, showEstimates && "text-accent")}
-          >
-            <List size={16} strokeWidth={1.75} />
-          </button>
           <button
             type="button"
             onClick={onPrint}

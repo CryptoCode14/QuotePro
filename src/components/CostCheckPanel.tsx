@@ -1,4 +1,5 @@
 import { fmt$, type CalcResult } from "@/lib/calc";
+import { gapVerdict, type GapVerdict } from "@/lib/gap";
 import { Eyebrow } from "@/components/primitives";
 
 interface CostCheckPanelProps {
@@ -25,7 +26,7 @@ function CheckRow({
   );
 }
 
-type Verdict = "on" | "above" | "below";
+type Verdict = GapVerdict;
 
 const VERDICT_STYLES: Record<
   Verdict,
@@ -54,8 +55,8 @@ const VERDICT_STYLES: Record<
  * frozen calc() result (component rows show the trivial ×mult×2 audit trail).
  */
 export function CostCheckPanel({ c }: CostCheckPanelProps) {
-  const verdict: Verdict =
-    c.gap >= 300 && c.gap <= 400 ? "on" : c.gap > 400 ? "above" : "below";
+  // Signed band logic — shared with QuoteRail via gapVerdict().
+  const verdict = gapVerdict(c.gap);
   const v = VERDICT_STYLES[verdict];
 
   return (

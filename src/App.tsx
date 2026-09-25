@@ -3,11 +3,13 @@ import { toast } from "sonner";
 import type { User } from "@supabase/supabase-js";
 
 import { Header } from "@/components/Header";
+import { TabBar, type TabId } from "@/components/TabBar";
 import { IntakePanel } from "@/components/IntakePanel";
 import { PricingWorkbench } from "@/components/PricingWorkbench";
 import { CostCheckPanel } from "@/components/CostCheckPanel";
 import { QuoteRail } from "@/components/QuoteRail";
 import { EstimatesView } from "@/components/EstimatesView";
+import { HistoryView } from "@/components/HistoryView";
 import { AuthGate, type AuthResult } from "@/components/AuthGate";
 
 import {
@@ -25,6 +27,7 @@ import {
 } from "@/lib/constants";
 import { parsePricingText, type ParsedCard } from "@/lib/ocrParser";
 import { parsePrices, type FillJob } from "@/lib/parse";
+import { addHistory, type HistoryEntry } from "@/lib/history";
 import { supabase } from "@/lib/supabase";
 
 /** Hero-total tween duration (ms), carried over from v6. */
@@ -53,7 +56,7 @@ export default function App() {
   const [fields, setFields] = useState<Record<FieldKey, string>>({
     ...FIELD_DEFAULTS,
   });
-  const [showEstimates, setShowEstimates] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabId>("quote");
   const [filledKeys, setFilledKeys] = useState<FieldKey[]>([]);
   const [status, setStatus] = useState<{ msg: string; kind: "" | "ok" | "warn" }>(
     { msg: "WAITING FOR INPUT…", kind: "" },
@@ -141,12 +144,33 @@ export default function App() {
 
   /* ---------- instant fill (replaces the v6 typewriter) ---------- */
   const runFillJobs = useCallback(
-    (jobs: FillJob[], okMsg?: string) => {
-      const keys = jobs.map((j) => j.key);
+    (jobs: FillJob[], okMsg?: string, scanCards?: ParsedCard[]) => {
+      // Replace semantics: every scan sets ALL THREE cost fields. Categories
+      // the scan didn't find reset to 0.00 instead of keeping stale values
+      // (e.g. a leftover demo "250" in windows).
+      const seen = new Set(jobs.map((j) => j.key));
+      const full: FillJob[] = [
+        ...jobs,
+        ...(
+          ["door", "windows", "etc"] as const
+        )
+          .filter((k) => !seen.has(k))
+          .map(
+            (k): FillJob => ({ key: k, value: 0, conf: "high" }),
+          ),
+      ];
+      const keys = full.map((j) => j.key);
       setFields((f) => {
         const n = { ...f, mult: "1.00" };
-        for (const j of jobs) n[j.key] = j.value.toFixed(2);
+        for (const j of full) n[j.key] = j.value.toFixed(2);
         return n;
+      });
+      addHistory({
+        type: "scan",
+        door: full.find((j) => j.key === "door")?.value ?? 0,
+        windows: full.find((j) => j.key === "windows")?.value ?? 0,
+        etc: full.find((j) => j.key === "etc")?.value ?? 0,
+        cards: scanCards,
       });
       setFilledKeys(keys);
       later(() => setFilledKeys([]), 700); // 600ms flash, then clear
@@ -208,20 +232,12 @@ export default function App() {
         showToast("NO PRICES FOUND IN IMAGE");
         return;
       }
-      const jobs: FillJob[] = [];
+      const jobs: FillJob[] = [
+        { key: "door", value: r.door, conf: "high" },
+        { key: "windows", value: r.windows, conf: "high" },
+        { key: "etc", value: r.etc, conf: "high" },
+      ];
       const hasDoor = r.cards.some((c) => c.kind === "door");
-      if (r.door > 0) jobs.push({ key: "door", value: r.door, conf: "high" });
-      if (r.windows > 0)
-        jobs.push({ key: "windows", value: r.windows, conf: "high" });
-      if (r.etc > 0) jobs.push({ key: "etc", value: r.etc, conf: "high" });
-      if (!jobs.length) {
-        setStatus({
-          msg: "NO NET PRICE FOUND — TRY A CLEARER SHOT OR PASTE TEXT",
-          kind: "warn",
-        });
-        showToast("NO PRICES FOUND IN IMAGE");
-        return;
-      }
       runFillJobs(
         jobs,
         // The door card wasn't detected (OCR mangled the model line or it was
@@ -234,6 +250,7 @@ export default function App() {
           : `SCANNED ${r.cards.length} ITEM${
               r.cards.length > 1 ? "S" : ""
             } — DOOR NOT FOUND, CHECK THE SCREENSHOT`,
+        r.cards,
       );
       if (!hasDoor) showToast("DOOR NOT FOUND IN SCAN");
     },
@@ -421,11 +438,35 @@ export default function App() {
       refresh(true);
       const c2 = calc(solvedInputs);
       setSolved({ margin: c2.margin, gap: Math.round(c2.gap) });
+      addHistory({
+        type: "solve",
+        door: solvedInputs.door,
+        windows: solvedInputs.windows,
+        etc: solvedInputs.etc,
+        grandTotal: c2.grandTotal,
+        margin: c2.margin,
+      });
       later(() => setSolved(null), 4200);
       solvingRef.current = false;
       setSolving(false);
     }, 1100);
   }, [hideSolved, later, refresh]);
+
+  const onRestoreHistory = useCallback(
+    (entry: HistoryEntry) => {
+      setFields((f) => ({
+        ...f,
+        door: entry.door.toFixed(2),
+        windows: entry.windows.toFixed(2),
+        etc: entry.etc.toFixed(2),
+        mult: "1.00",
+      }));
+      setActiveTab("quote");
+      refresh(true);
+      showToast("HISTORY ENTRY RESTORED");
+    },
+    [refresh, showToast],
+  );
 
   const fallbackCopy = (t: string) => {
     const ta = document.createElement("textarea");
@@ -548,30 +589,26 @@ export default function App() {
       <Header
         user={user}
         onSignOut={handleSignOut}
-        showEstimates={showEstimates}
-        onToggleEstimates={() => setShowEstimates((s) => !s)}
         onCopyApi={copyApiCall}
         onPrint={() => window.print()}
       />
+      <TabBar active={activeTab} onChange={setActiveTab} />
 
-      {/* Mobile sticky total bar (below the sticky header) */}
-      {!showEstimates && (
-        <div className="no-print sticky top-14 z-30 border-b border-hairline bg-bg/90 backdrop-blur lg:hidden">
-          <div className="mx-auto flex max-w-[1560px] items-baseline justify-between px-4 py-2 sm:px-6">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
-              Grand total
-            </span>
-            <span className="font-num text-xl font-semibold">
-              ${fmt$(c.grandTotal)}
-            </span>
+      {activeTab === "quote" && (
+        <>
+          {/* Mobile sticky total bar (below the sticky header + tab bar) */}
+          <div className="no-print sticky top-[100px] z-30 border-b border-hairline bg-bg/90 backdrop-blur lg:hidden">
+            <div className="mx-auto flex max-w-[1560px] items-baseline justify-between px-4 py-2 sm:px-6">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+                Grand total
+              </span>
+              <span className="font-num text-xl font-semibold">
+                ${fmt$(c.grandTotal)}
+              </span>
+            </div>
           </div>
-        </div>
-      )}
 
-      {showEstimates ? (
-        <EstimatesView />
-      ) : (
-        <main className="mx-auto grid max-w-[1560px] grid-cols-1 gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[320px_minmax(0,1fr)_380px]">
+          <main className="mx-auto grid max-w-[1560px] grid-cols-1 gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[320px_minmax(0,1fr)_380px]">
           {/* Left zone: on xl this wrapper disappears (contents) so intake
               becomes its own sticky grid column; on lg it stacks intake +
               pricing in column 1. */}
@@ -619,7 +656,10 @@ export default function App() {
             />
           </aside>
         </main>
+        </>
       )}
+      {activeTab === "estimates" && <EstimatesView />}
+      {activeTab === "history" && <HistoryView onRestore={onRestoreHistory} />}
 
       <AuthGate
         open={!user}
