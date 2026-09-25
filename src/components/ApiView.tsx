@@ -14,10 +14,22 @@ interface ApiKey {
   id: string;
   name: string;
   prefix: string;
+  scopes: string[];
   createdAt: string | null;
   lastUsedAt: string | null;
   revoked: boolean;
 }
+
+/** Scopes grant an API key access to specific /v1 capabilities. */
+const SCOPE_OPTIONS: { id: string; label: string; hint: string }[] = [
+  { id: "calculate", label: "Calculate", hint: "POST /v1/calculate" },
+  { id: "quotes:read", label: "Read quotes", hint: "GET /v1/quotes" },
+  { id: "quotes:write", label: "Save quotes", hint: "POST /v1/quotes" },
+  { id: "keys:read", label: "List keys", hint: "GET /v1/api-keys" },
+  { id: "keys:manage", label: "Manage keys", hint: "Create & revoke keys" },
+];
+
+const DEFAULT_SCOPES = ["calculate", "quotes:read", "quotes:write"];
 
 /** First non-nullish value across candidate field names. */
 function pick(r: Record<string, unknown>, ...keys: string[]): unknown {
@@ -37,6 +49,7 @@ function normKey(r: Record<string, unknown>): ApiKey {
     id: s(pick(r, "id", "key_id", "keyId")),
     name: s(pick(r, "name")) || "Unnamed key",
     prefix: s(pick(r, "prefix", "key_prefix", "keyPrefix")),
+    scopes: Array.isArray(r.scopes) ? r.scopes.map(String) : [],
     createdAt: str(pick(r, "created_at", "createdAt")),
     lastUsedAt: str(pick(r, "last_used_at", "lastUsedAt", "last_used")),
     revoked:
@@ -103,6 +116,7 @@ export function ApiView() {
     null,
   );
   const [name, setName] = useState("");
+  const [scopes, setScopes] = useState<string[]>(DEFAULT_SCOPES);
   const [genBusy, setGenBusy] = useState(false);
   const [listBusy, setListBusy] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
@@ -194,7 +208,7 @@ export function ApiView() {
     try {
       const json = await authFetch(API_KEYS_URL, {
         method: "POST",
-        body: JSON.stringify({ name: name.trim() || "ServiceTitan agent" }),
+        body: JSON.stringify({ name: name.trim() || "ServiceTitan agent", scopes }),
       });
       const plain =
         json?.apiKey ??
@@ -206,6 +220,7 @@ export function ApiView() {
       if (!plain) throw new Error("The server did not return a key.");
       setPlainKey(String(plain));
       setName("");
+      setScopes(DEFAULT_SCOPES);
       setMsg({ text: "Key created.", kind: "ok" });
       await loadKeys();
     } catch (e) {
@@ -386,6 +401,47 @@ export function ApiView() {
               </button>
             </div>
 
+            {/* scopes */}
+            <fieldset className="mt-3">
+              <legend className="text-[12px] font-medium uppercase tracking-[0.06em] text-muted">
+                Scopes for the new key
+              </legend>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {SCOPE_OPTIONS.map((o) => {
+                  const on = scopes.includes(o.id);
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() =>
+                        setScopes((s) =>
+                          s.includes(o.id) ? s.filter((x) => x !== o.id) : [...s, o.id],
+                        )
+                      }
+                      aria-pressed={on}
+                      title={o.hint}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium transition-all duration-150 active:scale-[0.97]",
+                        on
+                          ? "border-accent bg-accent/10 text-ink"
+                          : "border-hairline bg-fill text-muted hover:text-ink",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "flex h-3.5 w-3.5 items-center justify-center rounded-full border",
+                          on ? "border-accent bg-accent text-white" : "border-hairline",
+                        )}
+                      >
+                        {on && <Check size={10} strokeWidth={3} />}
+                      </span>
+                      {o.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
             {/* key list */}
             <div className="mt-4 space-y-2.5">
               {keys === null && (
@@ -422,6 +478,18 @@ export function ApiView() {
                     <div className="mt-1 font-mono text-[12px] text-muted">
                       {k.prefix || "—"}
                     </div>
+                    {k.scopes.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {k.scopes.map((s) => (
+                          <span
+                            key={s}
+                            className="inline-flex items-center rounded-md bg-fill px-1.5 py-0.5 font-mono text-[10px] text-muted"
+                          >
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <div className="mt-1 font-num text-[12px] text-muted">
                       Created {fmtDate(k.createdAt)} · Last used{" "}
                       {fmtDate(k.lastUsedAt, "Never")}
