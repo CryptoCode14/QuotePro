@@ -14,29 +14,35 @@ app.use(express.json());
 // Setup multer for image uploads (Vercel uses /tmp)
 const upload = multer({ dest: '/tmp/' });
 
-// Supabase Setup
+// Supabase Setup — service-role client (server-side only). Required because
+// the api_keys table has RLS enabled with no public policies.
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Auth Middleware (using api_keys table in Supabase)
+// Auth Middleware (using api_keys table in Supabase).
+// Keys are stored as SHA-256 hashes (plaintext column retired 2026-09-25);
+// a key is valid when its hash matches a row with revoked_at IS NULL.
 const authenticate = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).json({ error: 'Missing or invalid Bearer token' });
     }
     const token = authHeader.split(' ')[1];
-    
+    const keyHash = require('crypto').createHash('sha256').update(token, 'utf8').digest('hex');
+
     const { data, error } = await supabase
         .from('api_keys')
-        .select('*')
-        .eq('key', token)
-        .eq('is_active', true)
-        .single();
-        
+        .select('id')
+        .eq('key_hash', keyHash)
+        .is('revoked_at', null)
+        .maybeSingle();
+
     if (error || !data) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
+    // Best-effort usage stamp; auth must not depend on it.
+    supabase.from('api_keys').update({ last_used_at: new Date().toISOString() }).eq('id', data.id).then(() => {}, () => {});
     next();
 };
 
@@ -160,29 +166,9 @@ app.delete('/api/estimates/:id', authenticate, async (req, res) => {
     res.json({ success: true });
 });
 
-// Admin endpoints
-app.get('/api/admin/keys', async (req, res) => {
-    const { data, error } = await supabase.from('api_keys').select('*');
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data);
-});
-
-app.post('/api/admin/keys', async (req, res) => {
-    const rawKey = 'sk_live_' + require('crypto').randomBytes(16).toString('hex');
-    const { data, error } = await supabase.from('api_keys').insert([{
-        name: req.body.name,
-        key: rawKey
-    }]).select();
-    
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data[0]);
-});
-
-app.delete('/api/admin/keys/:id', async (req, res) => {
-    const { data, error } = await supabase.from('api_keys').update({ is_active: false }).eq('id', req.params.id);
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ success: true });
-});
+// NOTE: /api/admin/keys was retired 2026-09-25. Key management now lives in
+// the /v1/api-keys serverless functions (session-JWT auth, hashed storage,
+// per-user isolation). This unauthenticated endpoint is gone for good.
 
 // Vercel handles listening automatically
 module.exports = app;
