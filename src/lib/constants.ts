@@ -36,3 +36,11 @@ export const SAMPLE_TEXT = [
 ].join("\n");
 
 export const SETTINGS_STORAGE_KEY = "quoteproSettings";
+
+/**
+ * Latest preview deployment of this branch — used for the API docs curl
+ * examples. In-app API calls use same-origin relative paths (/v1/…) so they
+ * always hit the preview deployment the user is actually on.
+ */
+export const QUOTE_API_BASE =
+  "https://quotepro-7s2mex88k-pizza122202-9153s-projects.vercel.app";

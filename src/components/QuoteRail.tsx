@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   Calculator,
@@ -5,11 +6,13 @@ import {
   Copy,
   Printer,
   RotateCcw,
+  Save,
 } from "lucide-react";
 import { Eyebrow } from "@/components/primitives";
 import { useTween } from "@/hooks/useTween";
 import { fmt$, marginBand, type CalcResult } from "@/lib/calc";
 import { gapVerdict } from "@/lib/gap";
+import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
 interface QuoteRailProps {
@@ -85,7 +88,7 @@ function GhostBtn({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[12px] font-medium text-muted transition-all duration-150 hover:bg-fill hover:text-ink active:scale-[0.97]"
+      className="flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-2 text-[12px] font-medium text-muted transition-all duration-150 hover:bg-fill hover:text-ink active:scale-[0.97]"
     >
       <Icon size={14} strokeWidth={1.75} />
       {label}
@@ -105,6 +108,69 @@ export function QuoteRail({
   onPrint,
 }: QuoteRailProps) {
   const hero = useTween(c.grandTotal, tweenDur, tweenSeq);
+
+  /* ---------- save quote to the API (subtle ghost action; Solve stays primary) ---------- */
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{
+    kind: "ok" | "bad";
+    text: string;
+  } | null>(null);
+  const saveTimer = useRef<number | null>(null);
+
+  const flashSaveMsg = (m: { kind: "ok" | "bad"; text: string }) => {
+    setSaveMsg(m);
+    if (saveTimer.current) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => setSaveMsg(null), 5000);
+  };
+
+  const saveQuote = async () => {
+    if (saving) return;
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Sign in to save a quote.");
+      const res = await fetch("/v1/quotes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        /* IMPORTANT: the app's internal misc field is `etc`; the API
+           contract names it `miscellaneous`. */
+        body: JSON.stringify({
+          door: c.door,
+          windows: c.windows,
+          miscellaneous: c.etc,
+          multiplier: c.mult,
+          base: c.base,
+          pct: c.pct,
+          installation: c.inst,
+          fuel: c.fuel,
+          source: "app",
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok)
+        throw new Error(
+          (json && (json.error || json.message)) ||
+            `Save failed (${res.status})`,
+        );
+      const id = json?.id ?? json?.quote_id ?? json?.quoteId ?? json?.data?.id;
+      flashSaveMsg({
+        kind: "ok",
+        text: id ? `Saved · quote ${id}` : "Quote saved.",
+      });
+    } catch (e) {
+      flashSaveMsg({
+        kind: "bad",
+        text: e instanceof Error ? e.message : "Could not save the quote.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const marginB = marginBand(c.margin);
   const marginPill: { label: string; tone: PillTone } =
@@ -249,8 +315,28 @@ export function QuoteRail({
         </div>
       )}
 
+      {saveMsg && (
+        <div
+          role="status"
+          className={cn(
+            "mt-2.5 flex items-center gap-2 rounded-xl px-3 py-2.5 text-[12px] font-medium",
+            saveMsg.kind === "ok"
+              ? "bg-ok/15 text-ok"
+              : "bg-bad/15 text-bad",
+          )}
+        >
+          <Check size={14} strokeWidth={2.5} className="shrink-0" />
+          <span>{saveMsg.text}</span>
+        </div>
+      )}
+
       <div className="mt-2 flex items-center gap-1">
         <GhostBtn icon={RotateCcw} label="Reset" onClick={onReset} />
+        <GhostBtn
+          icon={Save}
+          label={saving ? "Saving…" : "Save quote"}
+          onClick={saveQuote}
+        />
         <GhostBtn icon={Copy} label="Copy API call" onClick={onCopyApi} />
         <GhostBtn icon={Printer} label="Print" onClick={onPrint} />
       </div>
