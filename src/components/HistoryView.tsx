@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
-import { History, RotateCcw, Search } from "lucide-react";
+import { Eye, History, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Eyebrow } from "@/components/primitives";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { fmt$ } from "@/lib/calc";
+import { cn } from "@/lib/utils";
 
 /** A quote row as returned by GET /v1/quotes. */
 export interface SavedQuote {
@@ -12,12 +20,19 @@ export interface SavedQuote {
   windows: number;
   miscellaneous: number;
   multiplier: number | null;
+  base: number | null;
+  pct: number | null;
+  installation: number | null;
+  fuel: number | null;
+  dealer_cost_total: number;
+  double_cost: number;
   final_price: number;
   margin: number;
   source: string | null;
   note: string | null;
   door_model: string | null;
   door_specs: string | null;
+  door_options: string | null;
 }
 
 interface HistoryViewProps {
@@ -41,11 +56,23 @@ function fmtTime(iso: string): string {
   }
 }
 
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-[3px]">
+      <span className="text-[13px] text-muted">{label}</span>
+      <span className="font-num text-[13px] text-ink">{value}</span>
+    </div>
+  );
+}
+
 export function HistoryView({ onRestore }: HistoryViewProps) {
   const [quotes, setQuotes] = useState<SavedQuote[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [detail, setDetail] = useState<SavedQuote | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -75,10 +102,37 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
     load();
   }, []);
 
+  const deleteQuote = async (id: string) => {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Sign in to delete a quote.");
+      const res = await fetch(`/v1/quotes/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok)
+        throw new Error(
+          (json && (json.error || json.message)) ||
+            `Could not delete quote (${res.status})`,
+        );
+      setQuotes((qs) => qs.filter((q) => q.id !== id));
+      if (detail?.id === id) setDetail(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete quote.");
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(null);
+    }
+  };
+
   const q = query.trim().toLowerCase();
   const filtered = q
     ? quotes.filter((quote) =>
-        [quote.door_model, quote.door_specs, quote.note]
+        [quote.door_model, quote.door_specs, quote.door_options, quote.note]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
@@ -96,7 +150,8 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
         <div>
           <Eyebrow>History</Eyebrow>
           <p className="mt-1.5 text-[13px] text-muted">
-            Saved quotes, newest first — restore any entry into the workbench.
+            Saved quotes, newest first — click a card for full details, or
+            restore an entry into the workbench.
           </p>
         </div>
       </div>
@@ -112,7 +167,7 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by door model, specs, or note…"
+          placeholder="Search by door model, size, options, or note…"
           aria-label="Search saved quotes"
           className="h-11 w-full rounded-xl bg-surface pl-10 pr-4 text-[13px] text-ink shadow-card outline-none placeholder:text-muted/70 focus-visible:border-accent"
         />
@@ -149,7 +204,8 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
         {filtered.map((quote) => (
           <article
             key={quote.id}
-            className="rounded-2xl bg-surface p-4 shadow-card"
+            onClick={() => setDetail(quote)}
+            className="cursor-pointer rounded-2xl bg-surface p-4 shadow-card transition-transform duration-150 hover:-translate-y-[1px] active:translate-y-0"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2.5">
@@ -162,15 +218,60 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
                   {fmtTime(quote.created_at)}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => onRestore(quote)}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-fill hover:text-ink"
-                title="Load this quote into the workbench"
-              >
-                <RotateCcw size={13} strokeWidth={2} />
-                Restore
-              </button>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDetail(quote);
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-fill hover:text-ink"
+                  title="View full quote details"
+                >
+                  <Eye size={13} strokeWidth={2} />
+                  Details
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRestore(quote);
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-fill hover:text-ink"
+                  title="Load this quote into the workbench"
+                >
+                  <RotateCcw size={13} strokeWidth={2} />
+                  Restore
+                </button>
+                {confirmDelete === quote.id ? (
+                  <button
+                    type="button"
+                    disabled={deleting}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteQuote(quote.id);
+                    }}
+                    className="flex items-center gap-1.5 rounded-lg bg-bad/15 px-2.5 py-1.5 text-[12px] font-semibold text-bad transition-colors duration-150 hover:bg-bad/25 disabled:opacity-60"
+                    title="Confirm delete — removes this quote permanently"
+                  >
+                    <Trash2 size={13} strokeWidth={2} />
+                    {deleting ? "Deleting…" : "Confirm"}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmDelete(quote.id);
+                    }}
+                    className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-bad/10 hover:text-bad"
+                    title="Delete this quote"
+                  >
+                    <Trash2 size={13} strokeWidth={2} />
+                    Delete
+                  </button>
+                )}
+              </div>
             </div>
             {(quote.door_specs || quote.note) && (
               <p className="mt-1.5 truncate text-[12px] text-muted">
@@ -212,6 +313,129 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
           quotes.
         </p>
       )}
+
+      {/* ---------- full quote detail ---------- */}
+      <Dialog open={detail !== null} onOpenChange={(open) => !open && setDetail(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+          {detail && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2.5">
+                  {detail.door_model && (
+                    <span className="rounded-full bg-accent/15 px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.06em] text-accent">
+                      {detail.door_model}
+                    </span>
+                  )}
+                  <span className="font-num text-[12px] font-normal text-muted">
+                    {fmtTime(detail.created_at)}
+                  </span>
+                </DialogTitle>
+                <DialogDescription>
+                  Everything saved for this quote.
+                </DialogDescription>
+              </DialogHeader>
+
+              {(detail.door_specs || detail.door_options || detail.note) && (
+                <div className="mt-4 rounded-xl bg-fill p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+                    Door
+                  </div>
+                  {detail.door_specs && (
+                    <p className="mt-1.5 text-[13px] font-medium text-ink">
+                      {detail.door_specs}
+                    </p>
+                  )}
+                  {detail.door_options && (
+                    <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
+                      {detail.door_options}
+                    </p>
+                  )}
+                  {detail.note && (
+                    <p className="mt-1.5 text-[13px] italic text-muted">
+                      “{detail.note}”
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-4">
+                <DetailRow label="Door cost" value={`$${fmt$(detail.door)}`} />
+                <DetailRow
+                  label="Windows"
+                  value={`$${fmt$(detail.windows)}`}
+                />
+                <DetailRow
+                  label="Miscellaneous"
+                  value={`$${fmt$(detail.miscellaneous)}`}
+                />
+                <DetailRow
+                  label="Multiplier"
+                  value={`${Number(detail.multiplier ?? 1).toFixed(2)}×`}
+                />
+                <DetailRow
+                  label="Overhead base"
+                  value={`$${fmt$(Number(detail.base ?? 0))}`}
+                />
+                <DetailRow
+                  label="Overhead %"
+                  value={`${Number(detail.pct ?? 0).toFixed(0)}%`}
+                />
+                <DetailRow
+                  label="Installation"
+                  value={`$${fmt$(Number(detail.installation ?? 0))}`}
+                />
+                <DetailRow
+                  label="Fuel & travel"
+                  value={`$${fmt$(Number(detail.fuel ?? 0))}`}
+                />
+                <div className="my-2 border-t border-ink/10" />
+                <DetailRow
+                  label="Dealer cost"
+                  value={`$${fmt$(detail.dealer_cost_total)}`}
+                />
+                <DetailRow
+                  label="Double cost"
+                  value={`$${fmt$(detail.double_cost)}`}
+                />
+                <div className="flex items-baseline justify-between gap-4 py-[3px]">
+                  <span className="text-[13px] font-semibold text-ink">
+                    Final price
+                  </span>
+                  <span className="font-num text-[16px] font-semibold text-ink">
+                    ${fmt$(detail.final_price)}
+                    <span className="ml-1.5 text-[12px] font-normal text-muted">
+                      · {Number(detail.margin).toFixed(1)}% margin
+                    </span>
+                  </span>
+                </div>
+                {detail.source && (
+                  <p className="mt-3 text-[11px] uppercase tracking-[0.06em] text-muted">
+                    Source: {detail.source}
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-5 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onRestore(detail);
+                    setDetail(null);
+                  }}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2",
+                    "text-[12px] font-semibold uppercase tracking-[0.06em] text-white",
+                    "transition-all duration-150 hover:brightness-110 active:scale-[0.97]",
+                  )}
+                >
+                  <RotateCcw size={13} strokeWidth={2} />
+                  Restore
+                </button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

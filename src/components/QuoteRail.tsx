@@ -3,10 +3,10 @@ import type { ReactNode } from "react";
 import {
   Calculator,
   Check,
-  Copy,
   Printer,
   RotateCcw,
   Save,
+  type LucideIcon,
 } from "lucide-react";
 import { Eyebrow } from "@/components/primitives";
 import { useTween } from "@/hooks/useTween";
@@ -23,12 +23,13 @@ interface QuoteRailProps {
   solved: { margin: number; gap: number } | null;
   onSolve: () => void;
   onReset: () => void;
-  onCopyApi: () => void;
   onPrint: () => void;
   doorModel: string;
   doorSpecs: string;
+  doorOptions: string;
   onDoorModel: (v: string) => void;
   onDoorSpecs: (v: string) => void;
+  onDoorOptions: (v: string) => void;
 }
 
 type PillTone = "ok" | "warn" | "bad";
@@ -84,7 +85,7 @@ function GhostBtn({
   label,
   onClick,
 }: {
-  icon: typeof Copy;
+  icon: LucideIcon;
   label: string;
   onClick: () => void;
 }) {
@@ -108,12 +109,13 @@ export function QuoteRail({
   solved,
   onSolve,
   onReset,
-  onCopyApi,
   onPrint,
   doorModel,
   doorSpecs,
+  doorOptions,
   onDoorModel,
   onDoorSpecs,
+  onDoorOptions,
 }: QuoteRailProps) {
   const hero = useTween(c.grandTotal, tweenDur, tweenSeq);
 
@@ -159,6 +161,7 @@ export function QuoteRail({
           source: "app",
           door_model: doorModel.trim() || undefined,
           door_specs: doorSpecs.trim() || undefined,
+          door_options: doorOptions.trim() || undefined,
         }),
       });
       const json = await res.json().catch(() => null);
@@ -340,7 +343,9 @@ export function QuoteRail({
         </div>
       )}
 
-      {/* Door identity — saved with the quote so it can be found later. */}
+      {/* Door identity — saved with the quote so it can be found later.
+          Model/size/options are auto-captured from the scan's Product line
+          (editable). */}
       <div className="mt-6 rounded-xl bg-fill p-3">
         <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
           Door for this quote
@@ -359,10 +364,19 @@ export function QuoteRail({
             type="text"
             value={doorSpecs}
             onChange={(e) => onDoorSpecs(e.target.value)}
-            placeholder="Size · 16×7 insul."
-            aria-label="Door specs"
+            placeholder="Size · 16x7"
+            aria-label="Door size"
             maxLength={256}
             className="h-10 rounded-lg bg-surface px-3 text-[13px] text-ink shadow-inset outline-none placeholder:text-muted/70 focus-visible:border-accent"
+          />
+          <textarea
+            value={doorOptions}
+            onChange={(e) => onDoorOptions(e.target.value)}
+            placeholder="Options · track, windows, insulation…"
+            aria-label="Door options"
+            maxLength={2000}
+            rows={3}
+            className="col-span-2 rounded-lg bg-surface px-3 py-2.5 text-[13px] leading-relaxed text-ink shadow-inset outline-none placeholder:text-muted/70 focus-visible:border-accent"
           />
         </div>
       </div>
@@ -374,7 +388,6 @@ export function QuoteRail({
           label={saving ? "Saving…" : "Save quote"}
           onClick={saveQuote}
         />
-        <GhostBtn icon={Copy} label="Copy API call" onClick={onCopyApi} />
         <GhostBtn icon={Printer} label="Print" onClick={onPrint} />
       </div>
     </aside>
