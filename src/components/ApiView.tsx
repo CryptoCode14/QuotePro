@@ -196,6 +196,7 @@ export function ApiView() {
         body: JSON.stringify({ name: name.trim() || "ServiceTitan agent" }),
       });
       const plain =
+        json?.apiKey ??
         json?.key ??
         json?.plaintext ??
         json?.api_key ??
