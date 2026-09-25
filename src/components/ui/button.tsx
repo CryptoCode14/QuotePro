@@ -5,21 +5,21 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl text-[15px] font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl text-[15px] font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:ring-4 focus-visible:ring-accent/25 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-lg hover:brightness-110 active:scale-[0.98]",
+          "bg-accent text-white shadow-accent hover:brightness-110 active:scale-[0.98]",
         accent:
-          "bg-accent text-accent-foreground shadow-lg hover:brightness-110 active:scale-[0.98]",
+          "bg-accent text-white shadow-accent hover:brightness-110 active:scale-[0.98]",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-md hover:brightness-110 active:scale-[0.98]",
+          "bg-bad text-white shadow-md hover:brightness-110 active:scale-[0.98]",
         outline:
-          "border border-border bg-background shadow-sm hover:bg-muted active:scale-[0.98]",
+          "border border-hairline bg-surface text-ink shadow-card hover:bg-fill active:scale-[0.98]",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:brightness-95 active:scale-[0.98] dark:hover:brightness-110",
-        ghost: "hover:bg-muted active:scale-[0.98]",
+          "bg-fill text-ink hover:bg-ink/[0.06] active:scale-[0.98]",
+        ghost: "text-ink hover:bg-fill active:scale-[0.98]",
         link: "text-accent underline-offset-4 hover:underline",
       },
       size: {

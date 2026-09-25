@@ -140,7 +140,7 @@ export function EstimatesView() {
         {msg}
       </p>
 
-      <div className="mt-4 overflow-hidden rounded-2xl border border-hairline bg-surface">
+      <div className="mt-4 overflow-hidden rounded-2xl bg-surface shadow-card">
         <table className="w-full text-left text-[14px]">
           <thead>
             <tr className="border-b border-hairline">
@@ -179,7 +179,7 @@ export function EstimatesView() {
               <tr
                 key={i}
                 id={`row-${i}`}
-                className="border-b border-hairline transition-colors duration-150 last:border-0 hover:bg-bg/60"
+                className="border-b border-hairline transition-colors duration-150 last:border-0 hover:bg-fill"
               >
                 <td className="px-4 py-3 text-ink">
                   {editing === i ? (
@@ -187,7 +187,7 @@ export function EstimatesView() {
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       aria-label="Estimate name"
-                      className="h-10 bg-bg text-[14px]"
+                      className="h-10 bg-fill text-[14px]"
                     />
                   ) : (
                     row[0] || ""
@@ -199,10 +199,10 @@ export function EstimatesView() {
                       value={editStatus}
                       onChange={(e) => setEditStatus(e.target.value)}
                       aria-label="Estimate status"
-                      className="h-10 bg-bg text-[14px]"
+                      className="h-10 bg-fill text-[14px]"
                     />
                   ) : (
-                    <span className="inline-flex items-center rounded-full bg-bg px-2.5 py-1 font-num text-[12px] text-ink">
+                    <span className="inline-flex items-center rounded-full bg-fill px-2.5 py-1 font-num text-[12px] text-ink">
                       {row[1] || "Pending"}
                     </span>
                   )}
@@ -216,7 +216,7 @@ export function EstimatesView() {
                           onClick={() => saveEstimate(i)}
                           title="Save"
                           aria-label="Save estimate"
-                          className="flex h-8 w-8 items-center justify-center rounded-lg text-ok transition-colors duration-150 hover:bg-bg"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-ok transition-colors duration-150 hover:bg-fill"
                         >
                           <Check size={15} strokeWidth={2} />
                         </button>
@@ -228,7 +228,7 @@ export function EstimatesView() {
                           }}
                           title="Cancel"
                           aria-label="Cancel editing"
-                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-bg hover:text-ink"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-fill hover:text-ink"
                         >
                           <X size={15} strokeWidth={2} />
                         </button>
@@ -240,7 +240,7 @@ export function EstimatesView() {
                           onClick={() => startEdit(i)}
                           title="Edit estimate"
                           aria-label="Edit estimate"
-                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-bg hover:text-ink"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-fill hover:text-ink"
                         >
                           <Pencil size={14} strokeWidth={1.75} />
                         </button>
@@ -249,7 +249,7 @@ export function EstimatesView() {
                           onClick={() => deleteEstimate(i)}
                           title="Delete estimate"
                           aria-label="Delete estimate"
-                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-bg hover:text-bad"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-fill hover:text-bad"
                         >
                           <Trash2 size={14} strokeWidth={1.75} />
                         </button>
@@ -269,22 +269,22 @@ export function EstimatesView() {
           onChange={(e) => setName(e.target.value)}
           placeholder="Client name..."
           aria-label="New estimate name"
-          className="bg-surface text-[14px]"
+          className="bg-surface text-[14px] shadow-sm"
         />
         <Input
           value={statusInput}
           onChange={(e) => setStatusInput(e.target.value)}
           placeholder="Status (optional)"
           aria-label="New estimate status"
-          className="bg-surface text-[14px]"
+          className="bg-surface text-[14px] shadow-sm"
         />
         <button
           type="button"
           onClick={addEstimate}
           className={cn(
             "flex h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-6",
-            "text-[13px] font-semibold uppercase tracking-[0.06em] text-white",
-            "transition-opacity duration-150 hover:opacity-90",
+            "text-[13px] font-semibold uppercase tracking-[0.06em] text-white shadow-accent",
+            "transition-all duration-150 hover:brightness-110 active:scale-[0.99]",
           )}
         >
           <Plus size={15} strokeWidth={2} /> Add

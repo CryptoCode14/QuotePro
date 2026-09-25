@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ScanLine, X, RotateCcw } from "lucide-react";
+import { ScanLine, TriangleAlert, X, RotateCcw } from "lucide-react";
 import { Eyebrow } from "@/components/primitives";
 import type { ParsedCard } from "@/lib/ocrParser";
 import { fmt$ } from "@/lib/calc";
@@ -64,11 +64,11 @@ export function IntakePanel({
     if (scanSeq > 0 && hasCards) setCollapsed(false);
   }, [scanSeq, hasCards]);
 
-  const statusColor =
+  const statusChip =
     statusKind === "ok"
-      ? "text-ok"
+      ? "bg-ok/15 text-ok"
       : statusKind === "warn"
-        ? "text-warn"
+        ? "bg-warn/15 text-warn"
         : "text-muted";
 
   const pct = ocrProgress == null ? null : Math.max(0, Math.min(100, Math.round(ocrProgress)));
@@ -76,7 +76,7 @@ export function IntakePanel({
   /* ---------------- collapsed strip ---------------- */
   if (collapsed && hasCards) {
     return (
-      <div className="rounded-2xl border border-hairline bg-surface px-4 py-3">
+      <div className="rounded-2xl bg-surface px-4 py-3 shadow-card">
         <Eyebrow>INTAKE</Eyebrow>
         <div className="mt-2 flex items-center justify-between gap-3">
           <p className="truncate text-[13px] text-muted">
@@ -86,7 +86,7 @@ export function IntakePanel({
           <button
             type="button"
             onClick={onRescan}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-hairline px-2.5 py-1.5 text-[13px] font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-fill px-2.5 py-1.5 text-[13px] font-medium text-ink transition-colors hover:text-accent"
           >
             <RotateCcw className="h-3.5 w-3.5" aria-hidden />
             Re-scan
@@ -102,7 +102,17 @@ export function IntakePanel({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <Eyebrow>INTAKE</Eyebrow>
-          <p className={cn("mt-1.5 truncate text-[13px]", statusColor)}>{statusMsg}</p>
+          <p
+            className={cn(
+              "mt-1.5 inline-flex max-w-full items-center gap-1.5 truncate rounded-lg px-2 py-1 text-[13px] font-medium",
+              statusChip,
+            )}
+          >
+            {statusKind === "warn" && (
+              <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            )}
+            <span className="truncate">{statusMsg}</span>
+          </p>
         </div>
         {hasCards && !ocrActive && (
           <button
@@ -115,7 +125,7 @@ export function IntakePanel({
         )}
       </div>
 
-      {/* Dropzone */}
+      {/* Dropzone — a white card with a dashed affordance edge */}
       <button
         type="button"
         onClick={onDropzoneClick}
@@ -134,10 +144,10 @@ export function IntakePanel({
           if (e.dataTransfer.files.length > 0) onDropFiles(e.dataTransfer.files);
         }}
         className={cn(
-          "flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors duration-150",
+          "flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed bg-surface px-6 py-10 text-center shadow-card transition-all duration-150",
           dragOver
-            ? "border-accent bg-accent/5"
-            : "border-hairline hover:border-accent",
+            ? "border-accent bg-accent/[0.06]"
+            : "border-ink/15 hover:border-accent hover:bg-accent/[0.03]",
         )}
       >
         <ScanLine className="h-7 w-7 text-muted" aria-hidden />
@@ -147,8 +157,8 @@ export function IntakePanel({
 
       {/* Inline OCR progress (replaces the fullscreen overlay) */}
       {ocrActive && (
-        <div className="rounded-2xl border border-hairline bg-surface px-4 py-3">
-          <div className="h-1 overflow-hidden rounded-full bg-hairline">
+        <div className="rounded-2xl bg-surface px-4 py-3 shadow-card">
+          <div className="h-1 overflow-hidden rounded-full bg-ink/10">
             <div
               className="h-full rounded-full bg-accent transition-[width] duration-200"
               style={{ width: `${pct ?? 100}%` }}
@@ -160,9 +170,9 @@ export function IntakePanel({
         </div>
       )}
 
-      {/* Inline OCR error */}
+      {/* Inline OCR error — amber warning tint */}
       {ocrError && !ocrActive && (
-        <div className="rounded-2xl border border-warn/40 bg-warn/10 px-4 py-3">
+        <div className="rounded-2xl border border-warn/40 bg-warn/10 px-4 py-3 shadow-card">
           <div className="flex items-start justify-between gap-3">
             <p className="text-[13px] leading-snug text-warn">{ocrError}</p>
             <button
@@ -185,7 +195,7 @@ export function IntakePanel({
         <img
           src={imgPreview}
           alt="Pasted screenshot preview"
-          className="w-28 rounded-lg border border-hairline object-cover"
+          className="w-28 rounded-lg object-cover shadow-card"
         />
       )}
 
@@ -202,7 +212,7 @@ export function IntakePanel({
                   type="button"
                   title={card.label}
                   onClick={() => onCardClick(card.kind)}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-ink/5"
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-fill"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[14px] font-medium text-ink">

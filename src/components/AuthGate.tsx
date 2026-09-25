@@ -65,7 +65,7 @@ export function AuthGate({ open, onLogin, onSignup, onReset }: AuthGateProps) {
       aria-label="Sign in"
       className="fixed inset-0 z-50 flex items-center justify-center bg-bg p-4"
     >
-      <div className="w-full max-w-sm rounded-2xl border border-hairline bg-surface p-8">
+      <div className="w-full max-w-sm rounded-2xl bg-surface p-8 shadow-pop">
         <div className="mb-7">
           <div className="font-sans text-[22px] font-semibold text-ink">
             QuotePro
@@ -113,7 +113,7 @@ export function AuthGate({ open, onLogin, onSignup, onReset }: AuthGateProps) {
           type="button"
           onClick={() => run(() => onLogin(email, password))}
           disabled={busy}
-          className="mt-1 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent text-[13px] font-semibold uppercase tracking-[0.06em] text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+          className="mt-1 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent text-[13px] font-semibold uppercase tracking-[0.06em] text-white shadow-accent transition-all duration-150 hover:brightness-110 active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 disabled:shadow-none"
         >
           <LogIn size={15} strokeWidth={2} aria-hidden /> SIGN IN
         </button>

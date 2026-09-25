@@ -24,14 +24,12 @@ interface QuoteRailProps {
   onPrint: () => void;
 }
 
-type PillTone = "ok" | "warn" | "bad" | "accent" | "neutral";
+type PillTone = "ok" | "warn" | "bad";
 
 const pillTones: Record<PillTone, string> = {
   ok: "bg-ok/15 text-ok",
   warn: "bg-warn/15 text-warn",
   bad: "bg-bad/15 text-bad",
-  accent: "bg-accent/15 text-accent",
-  neutral: "bg-ink/8 text-ink",
 };
 
 function Pill({ tone, children }: { tone: PillTone; children: ReactNode }) {
@@ -87,7 +85,7 @@ function GhostBtn({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-bg hover:text-ink"
+      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-fill hover:text-ink"
     >
       <Icon size={14} strokeWidth={1.75} />
       {label}
@@ -120,12 +118,12 @@ export function QuoteRail({
   // Signed band logic — shared with CostCheckPanel via gapVerdict().
   const gv = gapVerdict(c.gap);
   const gapValueClass =
-    gv === "on" ? "text-ink" : gv === "above" ? "text-accent" : "text-bad";
+    gv === "on" ? "text-ink" : gv === "above" ? "text-warn" : "text-bad";
   const gapPill: { label: string; tone: PillTone } =
     gv === "on"
-      ? { label: "ON TARGET", tone: "neutral" }
+      ? { label: "ON TARGET", tone: "ok" }
       : gv === "above"
-        ? { label: "ABOVE", tone: "accent" }
+        ? { label: "ABOVE", tone: "warn" }
         : { label: "BELOW", tone: "bad" };
   const gapSign = c.gap < 0 ? "−" : "+";
 
@@ -136,32 +134,43 @@ export function QuoteRail({
   });
 
   return (
-    <aside className="rounded-2xl border border-hairline bg-surface p-6 shadow-[0_8px_30px_rgb(0_0_0/0.06)] self-start lg:sticky lg:top-20 dark:shadow-none">
+    <aside className="rounded-2xl bg-surface p-6 shadow-card self-start lg:sticky lg:top-20">
       <div className="flex items-baseline justify-between gap-4">
         <Eyebrow>Quote</Eyebrow>
         <span className="text-[12px] text-muted">{dateStr}</span>
       </div>
 
-      {/* Hero — clamped to always fit the rail (340–380px columns minus
-          padding); Inter tabular numerals keep every width stable. */}
-      <div
-        className="mt-3 whitespace-nowrap font-num font-semibold tracking-tight text-ink"
-        style={{
-          fontSize: "clamp(36px, 4vw, 56px)",
-          letterSpacing: "-0.02em",
-          lineHeight: 1.05,
-        }}
-        aria-live="polite"
-        aria-label={`Grand total $${hero.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-      >
-        $
-        {hero.toLocaleString("en-US", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })}
+      {/* Hero — deep-ink panel with white tabular numerals. The ink block
+          floats on the white card in light mode; in dark mode a hairline
+          white edge keeps it distinct from the dark card. Clamped to fit
+          the rail; Inter tabular numerals keep every width stable. */}
+      <div className="relative mt-3 overflow-hidden rounded-2xl bg-gradient-to-b from-[#333338] via-[#1c1c20] to-[#101013] px-5 py-5 shadow-inset dark:border dark:border-white/10">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/[0.07] to-transparent"
+        />
+        <div className="relative text-[11px] font-semibold uppercase tracking-[0.1em] text-white/55">
+          Grand total
+        </div>
+        <div
+          className="relative mt-1 whitespace-nowrap font-num font-semibold tracking-tight text-white"
+          style={{
+            fontSize: "clamp(34px, 4vw, 52px)",
+            letterSpacing: "-0.02em",
+            lineHeight: 1.05,
+          }}
+          aria-live="polite"
+          aria-label={`Grand total $${hero.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+        >
+          $
+          {hero.toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </div>
       </div>
 
-      <div className="mt-4 space-y-2.5">
+      <div className="mt-5 space-y-2.5">
         <div className="flex items-center justify-between">
           <span className="font-num text-[13px] text-muted">MARGIN</span>
           <span className="flex items-center gap-2">
@@ -182,9 +191,7 @@ export function QuoteRail({
         </div>
       </div>
 
-      <div className="my-4 h-px bg-hairline" />
-
-      <div>
+      <div className="mt-5">
         <LedgerRow label="Total materials" value={`$${fmt$(c.totalMaterials)}`} />
         <LedgerRow label="After multiplier" value={`$${fmt$(c.afterMult)}`} />
         <LedgerRow label="Overhead" value={`$${fmt$(c.overhead)}`} />
@@ -210,13 +217,11 @@ export function QuoteRail({
         />
       </div>
 
-      <div className="my-4 h-px bg-hairline" />
-
       <button
         type="button"
         onClick={onSolve}
         disabled={solving}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent text-[13px] font-semibold uppercase tracking-[0.06em] text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+        className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent text-[13px] font-semibold uppercase tracking-[0.06em] text-white shadow-accent transition-all duration-150 hover:brightness-110 active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 disabled:shadow-none"
       >
         <Calculator size={16} strokeWidth={2} />
         {solving ? "SOLVING…" : "SOLVE PRICING"}
@@ -225,7 +230,7 @@ export function QuoteRail({
       {solved && (
         <div
           role="status"
-          className="mt-2.5 flex items-center gap-2 rounded-xl bg-ok/10 px-3 py-2.5 text-[12px] font-medium text-ok"
+          className="mt-2.5 flex items-center gap-2 rounded-xl bg-ok/15 px-3 py-2.5 text-[12px] font-medium text-ok"
         >
           <Check size={14} strokeWidth={2.5} className="shrink-0" />
           <span>

@@ -20,8 +20,10 @@ export function Eyebrow({
 }
 
 /* ------------------------------------------------------------------ */
-/* PriceField — eyebrow label + large mono input with an adornment     */
-/* prefix ($ | × | %). `flash` triggers the 600ms OCR highlight.       */
+/* PriceField — eyebrow label + large tabular input with an adornment  */
+/* prefix ($ | × | %). Fields read as inset controls: a light tonal    */
+/* fill on the white card, blue focus ring. `flash` triggers the 600ms */
+/* OCR "accepted" highlight (green-tinted).                            */
 /* ------------------------------------------------------------------ */
 export function PriceField({
   id,
@@ -63,7 +65,7 @@ export function PriceField({
           inputMode="decimal"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className={`h-14 w-full rounded-xl border border-hairline bg-surface px-4 font-num text-[20px] font-medium text-ink text-right outline-none transition-colors duration-150 placeholder:text-muted/50 hover:border-ink/25 focus:border-accent focus:ring-2 focus:ring-accent/40 ${adornment ? "pl-9" : ""} ${flash ? "flash" : ""}`}
+          className={`h-14 w-full rounded-xl border border-transparent bg-fill px-4 font-num text-[20px] font-medium text-ink text-right shadow-inset outline-none transition-all duration-150 placeholder:text-muted/50 hover:bg-ink/[0.04] focus:border-accent focus:bg-surface focus:shadow-none focus:ring-4 focus:ring-accent/20 ${adornment ? "pl-9" : ""} ${flash ? "flash" : ""}`}
         />
       </div>
       {hint && <p className="mt-1.5 text-[12px] text-muted">{hint}</p>}
@@ -72,8 +74,8 @@ export function PriceField({
 }
 
 /* ------------------------------------------------------------------ */
-/* Section — ruled group container: eyebrow row + hairline top border  */
-/* + vertically spaced children.                                       */
+/* Section — a white elevated card grouping one eyebrow row and its    */
+/* fields. Depth comes from the tonal page + soft shadow, not rules.   */
 /* ------------------------------------------------------------------ */
 export function Section({
   eyebrow,
@@ -85,14 +87,14 @@ export function Section({
   children: ReactNode;
 }) {
   return (
-    <section>
-      <div className="mb-3 flex items-baseline justify-between gap-4">
+    <section className="rounded-2xl bg-surface p-5 shadow-card">
+      <div className="mb-4 flex items-baseline justify-between gap-4">
         <Eyebrow>{eyebrow}</Eyebrow>
         {hint && (
           <span className="text-right text-[12px] text-muted">{hint}</span>
         )}
       </div>
-      <div className="space-y-4 border-t border-hairline pt-4">{children}</div>
+      <div className="space-y-4">{children}</div>
     </section>
   );
 }

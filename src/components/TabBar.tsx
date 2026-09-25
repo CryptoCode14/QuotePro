@@ -18,7 +18,7 @@ export function TabBar({
   return (
     <nav
       aria-label="Primary"
-      className="no-print sticky top-14 z-30 h-11 border-b border-hairline bg-bg/90 backdrop-blur"
+      className="no-print sticky top-14 z-30 h-11 bg-bg/90 backdrop-blur"
     >
       <div className="flex h-full items-center gap-1 px-4 sm:px-6" role="tablist">
         {TABS.map((t) => (

@@ -10,7 +10,7 @@ function Switch({
   return (
     <BaseSwitch.Root
       className={cn(
-        "peer inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full bg-input shadow-inner transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[checked]:bg-accent",
+        "peer inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full bg-fill shadow-inset transition-colors outline-none focus-visible:ring-4 focus-visible:ring-accent/25 disabled:cursor-not-allowed disabled:opacity-50 data-[checked]:bg-accent",
         className
       )}
       {...props}
