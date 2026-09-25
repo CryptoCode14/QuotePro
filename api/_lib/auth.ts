@@ -134,7 +134,7 @@ export async function resolveCaller(
  */
 export function mintApiKey(): { apiKey: string; hash: string; prefix: string } {
   const apiKey = "qp_live_" + randomBytes(32).toString("hex");
-  return { apiKey, hash: sha256hex(apiKey), prefix: apiKey.slice(0, 8) };
+  return { apiKey, hash: sha256hex(apiKey), prefix: "qp_live_" + apiKey.slice(8, 12) };
 }
 
 // --- JSON response helpers -------------------------------------------------

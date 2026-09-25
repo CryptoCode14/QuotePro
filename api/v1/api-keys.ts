@@ -1,9 +1,12 @@
 /**
  * /v1/api-keys — manage the caller's own API keys. Session-JWT auth only.
  *
- * GET  → list the caller's keys (never hashes), newest first.
- * POST → mint a new key owned by the caller. Body: { name }.
- *        The plaintext key is returned exactly once, in this response.
+ * GET    → list the caller's keys (never hashes), newest first.
+ * POST   → mint a new key owned by the caller. Body: { name }.
+ *          The plaintext key is returned exactly once, in this response.
+ * DELETE → soft-revoke one of the caller's own keys. Query: ?id=<key id>.
+ *          Scoped to user_id, so revoking another user's key id returns 404
+ *          (indistinguishable from unknown).
  *
  * Every query is scoped to the caller's user_id: a user can never see,
  * list, or mint keys for anyone else.
@@ -14,6 +17,7 @@ import {
   getSessionUser,
   methodNotAllowed,
   mintApiKey,
+  notFound,
   ok,
   serviceClient,
   unauth,
@@ -60,5 +64,20 @@ export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
     );
   }
 
-  return methodNotAllowed(res, "GET, POST");
+  if (req.method === "DELETE") {
+    const rawId = req.query.id;
+    const idStr = Array.isArray(rawId) ? rawId[0] : rawId;
+    if (!idStr || !/^\d+$/.test(idStr)) return notFound(res, "Unknown key");
+    const { data, error } = await sb
+      .from("api_keys")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("id", Number(idStr))
+      .eq("user_id", user.id)
+      .is("revoked_at", null)
+      .select("id, revoked_at");
+    if (error || !data || data.length === 0) return notFound(res, "Unknown key");
+    return ok(res, { id: data[0].id, revoked_at: data[0].revoked_at });
+  }
+
+  return methodNotAllowed(res, "GET, POST, DELETE");
 }

@@ -41,6 +41,7 @@ function normKey(r: Record<string, unknown>): ApiKey {
     lastUsedAt: str(pick(r, "last_used_at", "lastUsedAt", "last_used")),
     revoked:
       pick(r, "revoked") === true ||
+      pick(r, "revoked_at", "revokedAt") != null ||
       pick(r, "is_active", "active") === false,
   };
 }
@@ -221,7 +222,7 @@ export function ApiView() {
       setRevoking(k.id);
       setMsg(null);
       try {
-        await authFetch(`${API_KEYS_URL}/${encodeURIComponent(k.id)}`, {
+        await authFetch(`${API_KEYS_URL}?id=${encodeURIComponent(k.id)}`, {
           method: "DELETE",
         });
         setMsg({ text: `Key "${k.name}" revoked.`, kind: "ok" });
