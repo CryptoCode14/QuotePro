@@ -19,8 +19,9 @@ export const FIELD_DEFAULTS = {
   windows: "0.00",
   etc: "0.00",
   mult: "1.00",
-  base: "0",
-  pct: "0",
+  // Weston's standing overhead constants — always default, never zeroed.
+  base: "2000",
+  pct: "25",
   inst: "0",
   fuel: "0",
 } as const;
