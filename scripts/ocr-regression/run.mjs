@@ -40,6 +40,35 @@ function check(name, actual, expected) {
   }
 }
 
+/**
+ * Door-identity invariant (Weston's standing rule): the parser must always
+ * surface the door model, size, and options list from a real Pricing Details
+ * screenshot. expected.json carries the verified doorModel per fixture; size
+ * and options must be present whenever a Product line exists (their exact
+ * OCR text is noisy, so presence — not exact text — is asserted).
+ */
+function checkIdentity(name, text, actual, expected) {
+  const hasProduct = /product\s*:/i.test(text);
+  if (expected.doorModel !== undefined && actual.doorModel !== expected.doorModel) {
+    failures++;
+    console.log(
+      `FAIL ${name}: doorModel ${JSON.stringify(actual.doorModel)} != ${JSON.stringify(expected.doorModel)}`,
+    );
+  }
+  if (hasProduct && !actual.doorSize) {
+    failures++;
+    console.log(`FAIL ${name}: Product line present but doorSize empty`);
+  }
+  if (hasProduct && actual.doorOptions.length === 0) {
+    failures++;
+    console.log(`FAIL ${name}: Product line present but doorOptions empty`);
+  }
+  if (!hasProduct && (actual.doorSize || actual.doorOptions.length > 0)) {
+    failures++;
+    console.log(`FAIL ${name}: no Product line but size/options extracted`);
+  }
+}
+
 // ---- 1. Real screenshot fixtures ----
 const expected = JSON.parse(
   fs.readFileSync(path.join(__dirname, "expected.json"), "utf8"),
@@ -57,7 +86,9 @@ for (const f of fixtureFiles) {
     continue;
   }
   const text = fs.readFileSync(path.join(__dirname, "fixtures", f), "utf8");
-  check(`fixture ${base.slice(0, 12)}`, parsePricingText(text), exp);
+  const parsed = parsePricingText(text);
+  check(`fixture ${base.slice(0, 12)}`, parsed, exp);
+  checkIdentity(`fixture ${base.slice(0, 12)}`, text, parsed, exp);
   // Structural invariant: every iStore screenshot must detect its door card —
   // a missing door must stay missing, never be guessed from another card.
   if (exp.door > 0) {

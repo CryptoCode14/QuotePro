@@ -2,176 +2,211 @@
  "0a4d9d2706b648cf645a88707cb2ca2604679569095e99633140a718c06398cf": {
   "door": 993.84,
   "windows": 69.24,
-  "etc": 48.17
+  "etc": 48.17,
+  "doorModel": "5245"
  },
  "0b2a48129f735cdd7d3d701e4f87be29e3acf0f08825e4ab4aadb81551edd66f": {
   "door": 2090.36,
   "windows": 0,
-  "etc": 896.64
+  "etc": 896.64,
+  "doorModel": "BDINU"
  },
  "1228934bcd422933f404762d8d32027db7feb2e543e9e790e1191b3744e11654": {
   "door": 0,
   "windows": 0,
-  "etc": 0
+  "etc": 0,
+  "doorModel": ""
  },
  "165bafb4c828a5f984cb931b441fdb3c711a48407d617dc10af1d792d7e3b42a": {
   "door": 1890.12,
   "windows": 0,
-  "etc": 577.59
+  "etc": 577.59,
+  "doorModel": "9138"
  },
  "1900f5c928dea13e882b0113ca0350511b0ef2db7b31b51f3d340b2416c22106": {
   "door": 1224.17,
   "windows": 959.96,
-  "etc": 51.8
+  "etc": 51.8,
+  "doorModel": "3200"
  },
  "2b7b1959c7a6f618e1a740114425ea44e97419dc3572019b6cf7e3d001aaabbb": {
   "door": 993.84,
   "windows": 69.24,
-  "etc": 163.55
+  "etc": 163.55,
+  "doorModel": "5245"
  },
  "3099e4de5bae0e2460ccd02ac0ce6b9721d72fe722b02a711debab6e92fa9b1c": {
   "door": 1244.32,
   "windows": 0,
-  "etc": 78.96
+  "etc": 78.96,
+  "doorModel": "3150"
  },
  "36d5b5e4903218086313817d0a435922bd348a60e66b83f2146a8f493d6f7ef4": {
   "door": 0,
   "windows": 0,
-  "etc": 0
+  "etc": 0,
+  "doorModel": ""
  },
  "37dce7917656185e351a08d7370f048732cf68ab0be3d96892659662e8a88072": {
   "door": 1772.8,
   "windows": 365.9,
-  "etc": 0
+  "etc": 0,
+  "doorModel": "4310"
  },
  "3a01bc3ed78d6c4cc0fec01672a6c6e641c7fcc3a180272f903e25bed2451d42": {
   "door": 1224.17,
   "windows": 0,
-  "etc": 51.8
+  "etc": 51.8,
+  "doorModel": "3200"
  },
  "3fa70d502b1e002775c77b24ac9dd8304dded313001f3d32b2707874e1461099": {
   "door": 997.09,
   "windows": 0,
-  "etc": 166.9
+  "etc": 166.9,
+  "doorModel": "4308"
  },
  "43067cc1a8072cd25ffd9325d1d13cf18d025aae476cf2683abda4719c70c418": {
   "door": 997.09,
   "windows": 0,
-  "etc": 166.9
+  "etc": 166.9,
+  "doorModel": "4308"
  },
  "495836724359a2c05a19964492b57b2f9f4ed80e12ec4c3de191e3f878fe0079": {
   "door": 1406.15,
   "windows": 1151.56,
-  "etc": 61.99
+  "etc": 61.99,
+  "doorModel": "3200"
  },
  "495a8f271ef94fb8555e1b7c09372e094c8987a43457650ff4dfc1b621f04ee5": {
   "door": 475.5,
   "windows": 0,
-  "etc": 24.34
+  "etc": 24.34,
+  "doorModel": "T50S"
  },
  "4f7f2861e63d08b33e4954091e3bbb989c12ef67925413c422649c44a3b259da": {
   "door": 1244.32,
   "windows": 0,
-  "etc": 173.26
+  "etc": 173.26,
+  "doorModel": "3150"
  },
  "53987391840170c8d560c4c26d84866b075e4938c84a9fafcd0f3cc98b5b11d8": {
   "door": 3927.54,
   "windows": 2423.42,
-  "etc": 300.44
+  "etc": 300.44,
+  "doorModel": "904U"
  },
  "601c8687ede9ba7b7741d1078fb084914e4c065db5b3b0a82efc6cc0d3d7c2e0": {
   "door": 2707.84,
   "windows": 1689.47,
-  "etc": 209.45
+  "etc": 209.45,
+  "doorModel": "904U"
  },
  "62a443094fa40a8088af73e11b0b2b2205e7f6208ab8f769bd5f2433e4642704": {
   "door": 993.84,
   "windows": 69.24,
-  "etc": 163.55
+  "etc": 163.55,
+  "doorModel": "5245"
  },
  "662c2c7dc98497ab01f0ff891feb7d289f52b6d86f0661ea7d51f4f9d259dffe": {
   "door": 2667.4,
   "windows": 393.23,
-  "etc": 242.34
+  "etc": 242.34,
+  "doorModel": "9130"
  },
  "692ff2cd65c72f1d421afce3545c39d0f2820532e6f704e8e645a97c2b0b21fe": {
   "door": 1053.28,
   "windows": 0,
-  "etc": 778.24
+  "etc": 778.24,
+  "doorModel": "GD1LU"
  },
  "7f720c9be94eb5be51a8a98a63456195048a6814194cec25c0e8338bd7d5682d": {
   "door": 3247.91,
   "windows": 2021.83,
-  "etc": 250.66
+  "etc": 250.66,
+  "doorModel": "904U"
  },
  "80eb51a41b11eb6a302f43581207321d77f4d3719ee2cc57af4ba46ffaa71ceb": {
   "door": 1890.12,
   "windows": 327.69,
-  "etc": 218.12
+  "etc": 218.12,
+  "doorModel": "9130"
  },
  "aadcca0b0fb67f2542f189255a781a76523f64699b2163cb32f014508f2651ed": {
   "door": 1293.34,
   "windows": 0,
-  "etc": 742.33
+  "etc": 742.33,
+  "doorModel": "GD2LP"
  },
  "b22d19a25f52802625924af503967980d4b9a10fa9cc35381c8012473e63bbda": {
   "door": 1191.3,
   "windows": 0,
-  "etc": 1101.79
+  "etc": 1101.79,
+  "doorModel": "9208"
  },
  "b9365047614d15804269a8f5d65132d1b3cfc6b5c2457f4e8ec20a172fb52688": {
   "door": 993.84,
   "windows": 69.24,
-  "etc": 48.17
+  "etc": 48.17,
+  "doorModel": "5245"
  },
  "c9e63bc19f619c068defc9602b3926afdcb990b35619405a1528cb7fab8233a1": {
   "door": 2461.59,
   "windows": 1534.73,
-  "etc": 41.19
+  "etc": 41.19,
+  "doorModel": "3200"
  },
  "db2fcb6cb160a6788d2f4b9fad3ae4ae79f9976d9a620ceb5cd8048836f55673": {
   "door": 9677.05,
   "windows": 1249.5,
-  "etc": 118.86
+  "etc": 118.86,
+  "doorModel": "VSAXU"
  },
  "df263a58ee9f59eb1bab476fba0b4bd233e70def536d880aef68d74027bc3d0a": {
   "door": 1371.05,
   "windows": 0,
-  "etc": 693.03
+  "etc": 693.03,
+  "doorModel": "9138"
  },
  "ea4c49859fee2d1c627dac45d5e13e7120ae4d1e08a995ce76e8b26404639778": {
   "door": 1059.49,
   "windows": 0,
-  "etc": 588.46
+  "etc": 588.46,
+  "doorModel": "9208"
  },
  "ef29818ed38fffa0b09f5878c7e587669490457dc7247f9dd9c5ec3c2c0afe0d": {
   "door": 1412.47,
   "windows": 0,
-  "etc": 875.42
+  "etc": 875.42,
+  "doorModel": "GD1LU"
  },
  "f0b9023f547f65b5b390b4663967368247b5d8af01ec8276feb86bfdb2677535": {
   "door": 1011.85,
   "windows": 0,
-  "etc": 521.92
+  "etc": 521.92,
+  "doorModel": "GD2LP"
  },
  "f61e7c2d287bba4fda25520c67f8212e89d442639c7ff0db90da76353d0f064c": {
   "door": 1191.3,
   "windows": 0,
-  "etc": 730.21
+  "etc": 730.21,
+  "doorModel": "9208"
  },
  "f66d6685e1782ac40c27cc427ed6fc39dfa348abbc4363f5d5eab97b0c38d027": {
   "door": 475.5,
   "windows": 0,
-  "etc": 24.34
+  "etc": 24.34,
+  "doorModel": "T50S"
  },
  "f7082757f3a589fad76cb1bf385df34ee81fb8302b5de6c7cef42c481be7074a": {
   "door": 2420.78,
   "windows": 227.83,
-  "etc": 944.32
+  "etc": 944.32,
+  "doorModel": "3200"
  },
  "ffd6292b477d85a568303e21b59fada6ac70cdd119d3bff4edfb922b75e8e050": {
   "door": 801.33,
   "windows": 0,
-  "etc": 145.77
+  "etc": 145.77,
+  "doorModel": "4308"
  }
 }

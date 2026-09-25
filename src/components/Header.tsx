@@ -1,11 +1,10 @@
-import { CircleUserRound, Copy, Moon, Printer, Sun } from "lucide-react";
+import { CircleUserRound, Moon, Printer, Sun } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { useTheme } from "@/lib/theme";
 
 interface HeaderProps {
   user: User | null;
   onSignOut: () => void;
-  onCopyApi: () => void;
   onPrint: () => void;
 }
 
@@ -35,7 +34,6 @@ function ThemeToggle() {
 export function Header({
   user,
   onSignOut,
-  onCopyApi,
   onPrint,
 }: HeaderProps) {
   return (
@@ -62,15 +60,6 @@ export function Header({
             className={iconBtn}
           >
             <Printer size={16} strokeWidth={1.75} />
-          </button>
-          <button
-            type="button"
-            onClick={onCopyApi}
-            title="Copy as API call"
-            aria-label="Copy as API call"
-            className={iconBtn}
-          >
-            <Copy size={16} strokeWidth={1.75} />
           </button>
           {user && (
             <button

@@ -32,6 +32,13 @@
  *   - Missing door: if no door card is detected, the door is reported as missing
  *     (0) — the parser NEVER promotes another card to door. Guessing the door
  *     from the largest price silently hid real door prices (2026-09-24).
+ *   - Door identity: the "Product:" spec line at the top of the modal is the
+ *     authoritative source for model, size, and the full options list
+ *     (insulation, color, windows, track…). It overrides the door card's
+ *     header label, which OCR mangles regularly ("524S" -> "5248").
+ *     Model/size/options are observed text, never guesses — when the Product
+ *     line is absent or cropped, the door card label (or first bare model
+ *     header) is used for the model and size/options stay empty.
  *   - Cropped screenshots: parse whatever cards are present; never invent cards.
  *     A header with no parseable net price is skipped, not zero-filled.
  *   - Card order is irrelevant: an EXTRA STRUT card above the door card parses
@@ -54,8 +61,32 @@ export interface PricingParseResult {
   windows: number;
   etc: number;
   cards: ParsedCard[];
+  /**
+   * Door identity from the "Product:" line at the top of the Pricing Details
+   * modal (the authoritative source — the door card's own header is often
+   * OCR-mangled, e.g. "524S" read as "5248"). Falls back to the door card
+   * label / first bare model header when no usable Product line exists.
+   */
+  doorModel: string;
+  /** Size segment of the Product line, e.g. `10'2" X 8'0"` (raw, editable). */
+  doorSize: string;
+  /** Remaining Product segments: insulation, color, windows, track, options… */
+  doorOptions: string[];
 }
 
+/** The "Product:" line introducing the pipe-separated door spec. */
+const PRODUCT_LINE_RE = /^\s*Product\s*:/i;
+/** Words that can never be a door model code (they leak into the model slot
+ *  on badly cropped/OCR-mangled Product lines). */
+const MODEL_DENY = new Set([
+  "STANDARD", "COMPLETE", "DOOR", "PRODUCT", "SECTION", "TORSION",
+  "INSULATED", "INSULATION", "SOLID", "LOCK", "LOCKS", "BRACKET",
+  "BRACKETS", "STRUT", "STRUTS", "DISTRIBUTOR", "RADIUS", "WHITE",
+  "BLACK", "ALMOND", "SANDTONE", "BRONZE", "CHOCOLATE", "GRAY",
+  "RAIL", "TRACK", "SPRING",
+]);
+/** Card-boundary signals: the Product info ends where priced cards begin. */
+const CARD_START_RE = /multiplier/i;
 /** "PRICE FOR ..." header. Tolerates OCR confusions of the letter I (1, L). */
 const PRICE_FOR_RE = /^\s*PR[I1L]CE\s+FOR\s+(.+)$/i;
 /**
@@ -67,8 +98,10 @@ const PRICE_FOR_RE = /^\s*PR[I1L]CE\s+FOR\s+(.+)$/i;
  * card to door.)
  */
 const DOOR_MULT_TAIL_RE = /^\s*([A-Z0-9][A-Z0-9 ]{1,6}):?\s*Multiplier\s*:?\s*[0-9.,]+\s*$/i;
-/** Bare door model code: 3-6 alphanumerics (tesseract split the Multiplier tail off). */
-const BARE_CODE_RE = /^[A-Z0-9]{3,6}$/i;
+/** Bare door model code: 4-6 alphanumerics (tesseract split the Multiplier tail off).
+ *  Minimum 4: 3-char matches are OCR title fragments ("Pri" from "Pricing
+ *  Details"), never real Clopay model codes. */
+const BARE_CODE_RE = /^[A-Z0-9]{4,6}$/i;
 /** Net-price label anchor. Tolerates "NetPrice:", missing colon, I/1/l confusion. */
 const NET_PRICE_LABEL_RE = /Net\s*Pr[i1l]ce/i;
 /** A normal dotted price token: "1,191.30". */
@@ -168,11 +201,85 @@ function classifyLabel(label: string): CardKind {
   return WINDOW_KEYWORDS.some((k) => compact.includes(k)) ? "windows" : "etc";
 }
 
+export interface DoorProductInfo {
+  model: string;
+  size: string;
+  options: string[];
+}
+
+/**
+ * Extract the "Product:" spec line from the top of the Pricing Details modal:
+ *   Product: 10'2" X 8'0" | 524S | COMPLETE DOOR | FOAM WITH 24 GA BACKER | …
+ * Segment 0 = size, segment 1 = model code, the rest = door options (track,
+ * windows, insulation, color, hardware…). The line often wraps across
+ * several OCR text lines, so continuation lines are joined until priced-card
+ * territory begins (a Multiplier tail, "PRICE FOR", or a Net Price label).
+ * Returns null when no Product line is found.
+ */
+export function extractProductInfo(text: string): DoorProductInfo | null {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((l) => PRODUCT_LINE_RE.test(l));
+  if (start < 0) return null;
+
+  let acc = lines[start].replace(PRODUCT_LINE_RE, "");
+  for (let j = start + 1; j < Math.min(start + 7, lines.length); j++) {
+    const t = lines[j].trim();
+    if (t === "") continue;
+    if (
+      CARD_START_RE.test(t) ||
+      PRICE_FOR_RE.test(t) ||
+      NET_PRICE_LABEL_RE.test(t) ||
+      /^list price/i.test(t)
+    )
+      break;
+    acc += " " + t;
+  }
+
+  const segs = acc
+    .split("|")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+  if (segs.length === 0) return null;
+
+  // Size: the first segment, kept raw — must look like dimensions.
+  const sizeCand = segs[0];
+  const size =
+    /\d\s*["'″”]/.test(sizeCand) || /\d\s*x\s*\d/i.test(sizeCand)
+      ? sizeCand
+      : "";
+
+  // Model: second segment. Must be a single clean token (2–8 alphanumerics,
+  // internal spaces tolerated for OCR splits like "9 208"); never a generic
+  // option word, and never a compound fragment from a cropped line
+  // ('12" RADIUS' -> reject on the raw shape, before cleaning).
+  const modelRaw = (segs[1] ?? "").trim();
+  const modelClean = modelRaw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const model =
+    /^[A-Z0-9][A-Z0-9.\- ]{1,7}$/.test(modelRaw) &&
+    /^[A-Z0-9]{2,8}$/.test(modelClean) &&
+    !MODEL_DENY.has(modelClean)
+      ? modelClean
+      : "";
+
+  // Options: everything except the size and model slots.
+  const options = segs.filter((s) => s !== sizeCand && s !== (segs[1] ?? ""));
+
+  return { model, size, options };
+}
+
 export function parsePricingText(text: string): PricingParseResult {
   const lines = text.split(/\r?\n/);
 
   // Pass 1: find card header lines.
   const headerAt: Array<{ label: string; isDoor: boolean } | null> = lines.map(detectHeader);
+  // Every bare-model header seen, even ones whose card has no visible price
+  // (cropped) — a model line is still a model line for identity purposes.
+  const doorHeaderLabels: string[] = [];
+  for (const h of headerAt) if (h?.isDoor) doorHeaderLabels.push(h.label);
+
+  // The Product spec line is the authoritative door identity: door card
+  // headers are frequently OCR-mangled ("524S" -> "5248").
+  const product = extractProductInfo(text);
 
   // Pass 2: for each header, scan its card (up to the next header) for the Net Price line.
   const cards: ParsedCard[] = [];
@@ -232,10 +339,26 @@ export function parsePricingText(text: string): PricingParseResult {
   const sumKind = (kind: CardKind): number =>
     round2(cards.filter((c) => c.kind === kind).reduce((acc, c) => acc + c.netPrice, 0));
 
+  // Prefer the Product-line model over the door card's own header —
+  // observed across real screenshots: the card header is OCR-mangled far
+  // more often than the Product line ("524S" card-read as "5248").
+  const doorCard = cards.find((c) => c.kind === "door");
+  if (product?.model && doorCard) doorCard.label = product.model;
+
   return {
     door: sumKind("door"),
     windows: sumKind("windows"),
     etc: sumKind("etc"),
     cards,
+    doorModel:
+      product?.model ||
+      doorCard?.label ||
+      // Bare headers only count when at least one priced card exists —
+      // otherwise a stray ALLCAPS-ish line on a non-pricing screenshot
+      // ("Books") would masquerade as a door model.
+      (cards.length > 0 ? doorHeaderLabels[0] : "") ||
+      "",
+    doorSize: product?.size || "",
+    doorOptions: product?.options || [],
   };
 }

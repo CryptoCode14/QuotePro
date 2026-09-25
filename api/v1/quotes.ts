@@ -10,9 +10,9 @@
  * GET  → paginated list of the caller's quotes, newest first.
  *        ?limit= (default 25, max 100), ?offset= (default 0).
  * POST → save a quote. Body: calculate inputs + optional note/source/
- *        door_model/door_specs. The server recomputes all money fields with
- *        the frozen pricing math — client-supplied totals are never trusted.
- *        Returns { id }.
+ *        door_model/door_specs/door_options. The server recomputes all money
+ *        fields with the frozen pricing math — client-supplied totals are
+ *        never trusted. Returns { id }.
  */
 import {
   anonClient,
@@ -27,12 +27,7 @@ import {
   type ApiReq,
   type ApiRes,
 } from "../_lib/auth";
-import { computeQuote, parseQuoteInputs } from "../_lib/inputs";
-
-const QUOTE_COLS =
-  "id, created_at, door, windows, miscellaneous, multiplier, base, pct, " +
-  "installation, fuel, dealer_cost_total, double_cost, final_price, margin, source, note, " +
-  "door_model, door_specs";
+import { QUOTE_COLS, buildQuoteRow } from "../_lib/quotes";
 
 function queryInt(v: string | string[] | undefined, def: number): number {
   const s = Array.isArray(v) ? v[0] : v;
@@ -65,51 +60,12 @@ export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
   if (req.method === "POST") {
     if (!callerHasScope(caller, "quotes:write"))
       return forbidden(res, "This API key lacks the 'quotes:write' scope");
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const parsed = parseQuoteInputs(body);
-    if (!parsed.ok) return bad(res, parsed.error);
-
-    const q = computeQuote(parsed.inputs);
-    const source =
-      typeof body.source === "string" && body.source.trim() !== ""
-        ? body.source.trim().slice(0, 32)
-        : "api";
-    const note =
-      typeof body.note === "string" && body.note.trim() !== ""
-        ? body.note.trim().slice(0, 1000)
-        : null;
-    const doorModel =
-      typeof body.door_model === "string" && body.door_model.trim() !== ""
-        ? body.door_model.trim().slice(0, 64)
-        : null;
-    const doorSpecs =
-      typeof body.door_specs === "string" && body.door_specs.trim() !== ""
-        ? body.door_specs.trim().slice(0, 256)
-        : null;
+    const built = buildQuoteRow(req.body, caller.userId);
+    if (!built.ok) return bad(res, built.error);
 
     const { data, error } = await sb
       .from("quotes")
-      .insert([
-        {
-          user_id: caller.userId,
-          door: parsed.inputs.door,
-          windows: parsed.inputs.windows,
-          miscellaneous: parsed.inputs.misc,
-          multiplier: parsed.inputs.multiplier,
-          base: parsed.inputs.base,
-          pct: parsed.inputs.pct,
-          installation: parsed.inputs.installation,
-          fuel: parsed.inputs.fuel,
-          dealer_cost_total: q.dealer_cost_total,
-          double_cost: q.double_cost,
-          final_price: q.final_price,
-          margin: q.margin,
-          source,
-          note,
-          door_model: doorModel,
-          door_specs: doorSpecs,
-        },
-      ])
+      .insert([built.row])
       .select("id")
       .single();
     if (error || !data) return bad(res, error?.message ?? "Failed to save quote");

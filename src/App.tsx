@@ -14,8 +14,6 @@ import { ApiView } from "@/components/ApiView";
 import { AuthGate, type AuthResult } from "@/components/AuthGate";
 
 import {
-  apiCurl,
-  apiPayload,
   calc,
   fmt$,
   parseInputs,
@@ -71,10 +69,11 @@ export default function App() {
   const [parsedCards, setParsedCards] = useState<ParsedCard[]>([]);
   const [scanSeq, setScanSeq] = useState(0);
   const [lastScanAt, setLastScanAt] = useState<string | null>(null);
-  /* Door identity for saved quotes: model auto-captured from the scan's
-     door card (editable), specs typed by Weston (size, insulation…). */
+  /* Door identity for saved quotes: model/size/options auto-captured from
+     the scan's Product spec line (editable), cleared on reset/rescan. */
   const [doorModel, setDoorModel] = useState("");
   const [doorSpecs, setDoorSpecs] = useState("");
+  const [doorOptions, setDoorOptions] = useState("");
   const [solving, setSolving] = useState(false);
   const [solved, setSolved] = useState<{ margin: number; gap: number } | null>(
     null,
@@ -229,9 +228,12 @@ export default function App() {
     (text: string) => {
       const r = parsePricingText(text);
       setParsedCards(r.cards);
-      /* Capture the door model from the scan's door card for saved quotes. */
-      const doorCard = r.cards.find((card) => card.kind === "door");
-      if (doorCard) setDoorModel(doorCard.label);
+      /* Door identity from the scan's Product spec line (model, size, full
+         options list) — falls back to the door card label when the Product
+         line is absent. All fields stay editable. */
+      if (r.doorModel) setDoorModel(r.doorModel);
+      if (r.doorSize) setDoorSpecs(r.doorSize);
+      if (r.doorOptions.length) setDoorOptions(r.doorOptions.join(" | "));
       if (!r.cards.length) {
         setStatus({
           msg: "NO NET PRICE FOUND — TRY A CLEARER SHOT OR PASTE TEXT",
@@ -425,6 +427,7 @@ export default function App() {
     setParsedCards([]);
     setDoorModel("");
     setDoorSpecs("");
+    setDoorOptions("");
     setImgPreview(null);
     setOcrError(null);
     setStatus({ msg: "WAITING FOR INPUT…", kind: "" });
@@ -436,6 +439,7 @@ export default function App() {
     setParsedCards([]);
     setDoorModel("");
     setDoorSpecs("");
+    setDoorOptions("");
     setImgPreview(null);
     setOcrError(null);
     setLastScanAt(null);
@@ -490,42 +494,13 @@ export default function App() {
       }));
       setDoorModel(q.door_model ?? "");
       setDoorSpecs(q.door_specs ?? "");
+      setDoorOptions(q.door_options ?? "");
       setActiveTab("quote");
       refresh(true);
       showToast("QUOTE RESTORED");
     },
     [refresh, showToast],
   );
-
-  const fallbackCopy = (t: string) => {
-    const ta = document.createElement("textarea");
-    ta.value = t;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    try {
-      document.execCommand("copy");
-    } catch {
-      /* clipboard unavailable */
-    }
-    document.body.removeChild(ta);
-  };
-
-  const copyApiCall = useCallback(() => {
-    const cc = calc(parseInputs(fieldsRef.current));
-    const curl = apiCurl(apiPayload(cc));
-    const done = () => showToast("API CALL COPIED — PASTE IT ANYWHERE");
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(curl).then(done, () => {
-        fallbackCopy(curl);
-        done();
-      });
-    } else {
-      fallbackCopy(curl);
-      done();
-    }
-  }, [showToast]);
 
   /* ---------- auth ---------- */
   useEffect(() => {
@@ -618,7 +593,6 @@ export default function App() {
       <Header
         user={user}
         onSignOut={handleSignOut}
-        onCopyApi={copyApiCall}
         onPrint={() => window.print()}
       />
       <TabBar active={activeTab} onChange={setActiveTab} />
@@ -682,12 +656,13 @@ export default function App() {
               solved={solved}
               onSolve={solveSequence}
               onReset={reset}
-              onCopyApi={copyApiCall}
               onPrint={() => window.print()}
               doorModel={doorModel}
               doorSpecs={doorSpecs}
+              doorOptions={doorOptions}
               onDoorModel={setDoorModel}
               onDoorSpecs={setDoorSpecs}
+              onDoorOptions={setDoorOptions}
             />
           </aside>
         </main>
