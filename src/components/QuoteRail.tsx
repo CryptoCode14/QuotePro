@@ -9,6 +9,7 @@ import {
 import { Eyebrow } from "@/components/primitives";
 import { useTween } from "@/hooks/useTween";
 import { fmt$, marginBand, type CalcResult } from "@/lib/calc";
+import { gapVerdict } from "@/lib/gap";
 import { cn } from "@/lib/utils";
 
 interface QuoteRailProps {
@@ -116,14 +117,16 @@ export function QuoteRail({
         : { label: "BELOW", tone: "bad" };
 
   const gapAbs = Math.abs(c.gap);
-  const gapIn = gapAbs >= 300 && gapAbs <= 400;
-  const gapHi = gapAbs > 400;
-  const gapValueClass = gapIn ? "text-ink" : gapHi ? "text-accent" : "text-bad";
-  const gapPill: { label: string; tone: PillTone } = gapIn
-    ? { label: "ON TARGET", tone: "neutral" }
-    : gapHi
-      ? { label: "ABOVE", tone: "accent" }
-      : { label: "BELOW", tone: "bad" };
+  // Signed band logic — shared with CostCheckPanel via gapVerdict().
+  const gv = gapVerdict(c.gap);
+  const gapValueClass =
+    gv === "on" ? "text-ink" : gv === "above" ? "text-accent" : "text-bad";
+  const gapPill: { label: string; tone: PillTone } =
+    gv === "on"
+      ? { label: "ON TARGET", tone: "neutral" }
+      : gv === "above"
+        ? { label: "ABOVE", tone: "accent" }
+        : { label: "BELOW", tone: "bad" };
   const gapSign = c.gap < 0 ? "−" : "+";
 
   const dateStr = new Date().toLocaleDateString("en-US", {
@@ -139,12 +142,14 @@ export function QuoteRail({
         <span className="text-[12px] text-muted">{dateStr}</span>
       </div>
 
+      {/* Hero — clamped to always fit the rail (340–380px columns minus
+          padding); Inter tabular numerals keep every width stable. */}
       <div
-        className="mt-3 font-num font-medium text-ink"
+        className="mt-3 whitespace-nowrap font-num font-semibold tracking-tight text-ink"
         style={{
-          fontSize: "clamp(48px, 5vw, 72px)",
+          fontSize: "clamp(36px, 4vw, 56px)",
           letterSpacing: "-0.02em",
-          lineHeight: 1,
+          lineHeight: 1.05,
         }}
         aria-live="polite"
         aria-label={`Grand total $${hero.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
