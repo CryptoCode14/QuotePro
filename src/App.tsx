@@ -9,7 +9,7 @@ import { PricingWorkbench } from "@/components/PricingWorkbench";
 import { CostCheckPanel } from "@/components/CostCheckPanel";
 import { QuoteRail } from "@/components/QuoteRail";
 import { EstimatesView } from "@/components/EstimatesView";
-import { HistoryView } from "@/components/HistoryView";
+import { HistoryView, type SavedQuote } from "@/components/HistoryView";
 import { ApiView } from "@/components/ApiView";
 import { AuthGate, type AuthResult } from "@/components/AuthGate";
 
@@ -28,7 +28,7 @@ import {
 } from "@/lib/constants";
 import { parsePricingText, type ParsedCard } from "@/lib/ocrParser";
 import { parsePrices, type FillJob } from "@/lib/parse";
-import { addHistory, type HistoryEntry } from "@/lib/history";
+import { addHistory } from "@/lib/history";
 import { supabase } from "@/lib/supabase";
 
 /** Hero-total tween duration (ms), carried over from v6. */
@@ -71,6 +71,10 @@ export default function App() {
   const [parsedCards, setParsedCards] = useState<ParsedCard[]>([]);
   const [scanSeq, setScanSeq] = useState(0);
   const [lastScanAt, setLastScanAt] = useState<string | null>(null);
+  /* Door identity for saved quotes: model auto-captured from the scan's
+     door card (editable), specs typed by Weston (size, insulation…). */
+  const [doorModel, setDoorModel] = useState("");
+  const [doorSpecs, setDoorSpecs] = useState("");
   const [solving, setSolving] = useState(false);
   const [solved, setSolved] = useState<{ margin: number; gap: number } | null>(
     null,
@@ -225,6 +229,9 @@ export default function App() {
     (text: string) => {
       const r = parsePricingText(text);
       setParsedCards(r.cards);
+      /* Capture the door model from the scan's door card for saved quotes. */
+      const doorCard = r.cards.find((card) => card.kind === "door");
+      if (doorCard) setDoorModel(doorCard.label);
       if (!r.cards.length) {
         setStatus({
           msg: "NO NET PRICE FOUND — TRY A CLEARER SHOT OR PASTE TEXT",
@@ -416,6 +423,8 @@ export default function App() {
 
   const onRescan = useCallback(() => {
     setParsedCards([]);
+    setDoorModel("");
+    setDoorSpecs("");
     setImgPreview(null);
     setOcrError(null);
     setStatus({ msg: "WAITING FOR INPUT…", kind: "" });
@@ -425,6 +434,8 @@ export default function App() {
     setFields({ ...FIELD_DEFAULTS });
     setFilledKeys([]);
     setParsedCards([]);
+    setDoorModel("");
+    setDoorSpecs("");
     setImgPreview(null);
     setOcrError(null);
     setLastScanAt(null);
@@ -469,17 +480,19 @@ export default function App() {
   }, [hideSolved, later, refresh]);
 
   const onRestoreHistory = useCallback(
-    (entry: HistoryEntry) => {
+    (q: SavedQuote) => {
       setFields((f) => ({
         ...f,
-        door: entry.door.toFixed(2),
-        windows: entry.windows.toFixed(2),
-        etc: entry.etc.toFixed(2),
-        mult: "1.00",
+        door: q.door.toFixed(2),
+        windows: q.windows.toFixed(2),
+        etc: q.miscellaneous.toFixed(2),
+        mult: (q.multiplier ?? 1).toFixed(2),
       }));
+      setDoorModel(q.door_model ?? "");
+      setDoorSpecs(q.door_specs ?? "");
       setActiveTab("quote");
       refresh(true);
-      showToast("HISTORY ENTRY RESTORED");
+      showToast("QUOTE RESTORED");
     },
     [refresh, showToast],
   );
@@ -671,6 +684,10 @@ export default function App() {
               onReset={reset}
               onCopyApi={copyApiCall}
               onPrint={() => window.print()}
+              doorModel={doorModel}
+              doorSpecs={doorSpecs}
+              onDoorModel={setDoorModel}
+              onDoorSpecs={setDoorSpecs}
             />
           </aside>
         </main>
