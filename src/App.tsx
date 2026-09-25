@@ -300,12 +300,17 @@ export default function App() {
         handleOcrText(String(res?.data?.text ?? ""));
       } catch (err) {
         console.error(err);
-        setOcrError("COULD NOT READ IMAGE — TRY AGAIN OR PASTE TEXT");
-        setStatus({
-          msg: "COULD NOT READ IMAGE — TRY AGAIN OR PASTE TEXT",
-          kind: "warn",
-        });
-        showToast("OCR FAILED — PASTE THE TEXT INSTEAD");
+        /* A dead engine load means this tab is running a stale deployment
+           (chunk URL orphaned by a redeploy) — a refresh is the real fix,
+           not retrying the scan. */
+        const staleBundle =
+          err instanceof Error && err.message === "OCR engine failed to load";
+        const msg = staleBundle
+          ? "QUOTE PRO WAS UPDATED — PLEASE REFRESH THE PAGE AND TRY AGAIN"
+          : "COULD NOT READ IMAGE — TRY AGAIN OR PASTE TEXT";
+        setOcrError(msg);
+        setStatus({ msg, kind: "warn" });
+        showToast(staleBundle ? "PLEASE REFRESH THE PAGE, THEN SCAN AGAIN" : "OCR FAILED — PASTE THE TEXT INSTEAD");
       } finally {
         /* ALWAYS dismiss — no stuck spinner, ever. */
         setOcr({ active: false, progress: null });
@@ -345,6 +350,16 @@ export default function App() {
   /* ---------- global paste-anywhere (never hijacks form fields) ---------- */
   const actionsRef = useRef({ applyPaste, handleImage });
   actionsRef.current = { applyPaste, handleImage };
+
+  /* Warm the lazily-loaded OCR engine chunk at mount, while the tab is fresh.
+     Without this, a tab left open across a production redeploy requests a
+     stale chunk URL that no longer exists -> strict MIME failure -> the
+     engine "fails to load". Fetching it now shrinks that window to page load. */
+  useEffect(() => {
+    import("tesseract.js").catch(() => {
+      /* Loaded on demand in runOCR; a failure here is non-fatal. */
+    });
+  }, []);
 
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
