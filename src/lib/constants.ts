@@ -3,9 +3,9 @@
  * The Supabase anon key is a public key, safe to ship client-side.
  */
 
-export const SUPABASE_URL = "https://ymwinetfkporjwxjkfgo.supabase.co";
+export const SUPABASE_URL = "https://cjyibogeeyrylosolmhs.supabase.co";
 export const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inltd2luZXRma3Bvcmp3eGprZmdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMjY2MjYsImV4cCI6MjA5NjYwMjYyNn0.MtQziHbMQegw4A_cdEkR895cgmNT8MsPKUxWf7phP9I";
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqeWlib2dlZXlyeWxvc29sbWhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAxOTE4NzIsImV4cCI6MjEwNTc2Nzg3Mn0.4GxEiftAghdZdC-RqP9X73P96su6oiq2IMnZ-yFBMRA";
 
 export const APPS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbyB7fWAsd8MQatdMw1dVDiYf4JYMpm2IHmTQZ9XrGuL_Gqi9iu8VdCwo3wlqUr1jODV/exec";
