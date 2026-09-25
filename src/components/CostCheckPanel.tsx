@@ -34,17 +34,17 @@ const VERDICT_STYLES: Record<
 > = {
   on: {
     valueClass: "text-ink",
-    pillClass: "bg-ok/10 text-ok",
+    pillClass: "bg-ok/15 text-ok",
     label: "ON TARGET",
   },
   above: {
-    valueClass: "text-accent",
-    pillClass: "bg-accent/10 text-accent",
+    valueClass: "text-warn",
+    pillClass: "bg-warn/15 text-warn",
     label: "ABOVE",
   },
   below: {
     valueClass: "text-bad",
-    pillClass: "bg-bad/10 text-bad",
+    pillClass: "bg-bad/15 text-bad",
     label: "BELOW",
   },
 };
@@ -60,7 +60,7 @@ export function CostCheckPanel({ c }: CostCheckPanelProps) {
   const v = VERDICT_STYLES[verdict];
 
   return (
-    <section className="rounded-2xl border border-hairline bg-surface p-5">
+    <section className="rounded-2xl bg-surface p-5 shadow-card">
       <div className="flex items-center justify-between gap-4">
         <Eyebrow>2× COST CHECK</Eyebrow>
         <span className="text-xs text-muted">each cost × multiplier × 2</span>
@@ -84,9 +84,7 @@ export function CostCheckPanel({ c }: CostCheckPanelProps) {
         />
       </div>
 
-      <div className="my-4 border-t border-hairline" />
-
-      <div className="space-y-3">
+      <div className="mt-5 space-y-3">
         <div className="flex items-center justify-between gap-4">
           <span className="font-sans text-sm font-medium text-ink">
             Total 2× cost

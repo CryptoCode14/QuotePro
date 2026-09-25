@@ -23,10 +23,12 @@
  *   - Classification:
  *       door    = card whose header is a bare model code (no "PRICE FOR" prefix).
  *       windows = label contains WINDOW, GLASS, GLAZING, LITE, INSERT,
- *                 FULL VISION, FULL-VIEW, VISION, or FV+digits (e.g. FV200U —
- *                 Weston confirmed 2026-09-24: Full Vision 200U is glass).
- *       etc     = everything else (FRAMING, COLOR, EXTRA STRUT, INSULATED,
- *                 TRACK MOUNT/LIFT, INSULATION, TOP SEAL, ...).
+ *                 FULL VISION, FULL-VIEW, VISION, FV+digits (e.g. FV200U —
+ *                 Weston confirmed 2026-09-24: Full Vision 200U is glass),
+ *                 or INSULAT* (INSULATED / INSULATION — Weston 2026-09-25:
+ *                 "PRICE FOR INSULATED" is the glass price, i.e. windows).
+ *       etc     = everything else (FRAMING, COLOR, EXTRA STRUT,
+ *                 TRACK MOUNT/LIFT, TOP SEAL, ...).
  *   - Missing door: if no door card is detected, the door is reported as missing
  *     (0) — the parser NEVER promotes another card to door. Guessing the door
  *     from the largest price silently hid real door prices (2026-09-24).
@@ -78,7 +80,11 @@ const PURE_PRICE_LINE_RE = /^\s*\$?\s*[0-9][0-9,]*(\.[0-9]{1,2})?\s*$/;
 /** Fallback numeric run for the trailing-two-digits-as-cents rule. */
 const DIGIT_RUN_RE = /[0-9][0-9,]*/;
 
-/** Window/glass classification keywords, matched against the spaceless uppercase label. */
+/** Window/glass classification keywords, matched against the spaceless uppercase label.
+ *  INSULAT covers INSULATED / INSULATION — Weston's domain call (2026-09-25):
+ *  "PRICE FOR INSULATED" is the glass price, i.e. windows, never miscellaneous.
+ *  Door-header detection runs first and has priority: a door card never
+ *  becomes windows even if its description mentions insulated. */
 const WINDOW_KEYWORDS = [
   "WINDOW",
   "GLASS",
@@ -88,6 +94,7 @@ const WINDOW_KEYWORDS = [
   "FULLVISION",
   "FULLVIEW",
   "VISION",
+  "INSULAT",
 ];
 
 function round2(n: number): number {

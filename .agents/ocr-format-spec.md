@@ -23,14 +23,18 @@ contract the new OCR intake parser must handle.
   either; card ORDER VARIES (e.g. EXTRA STRUT card appears above the door card
   in several screenshots) and the door is not always the max net price.
 - **windows** = card label contains any of: WINDOW, GLASS, GLAZING, LITE, INSERT,
-  FULL VISION, FULL-VIEW, VISION, FV + digits (e.g. FV200U).
+  FULL VISION, FULL-VIEW, VISION, FV + digits (e.g. FV200U),
+  or INSULAT* (INSULATED / INSULATION — Weston 2026-09-25: "PRICE FOR INSULATED"
+  is the glass price, i.e. windows, never miscellaneous).
   (Old parser only had WINDOW|GLASS|GLAZING|LITE|INSERT and missed the real-world
   labels "PRICE FOR INSULATED TEMPERED FULL VISION" and "PRICE FOR FV200U" —
   that is the windows bug.)
-- **etc** = everything else (FRAMING, COLOR, EXTRA STRUT, INSULATED, TRACK MOUNT,
-  TRACK LIFT, INSULATION, TOP SEAL, …). Note: "PRICE FOR FRAMING" on window
+- **etc** = everything else (FRAMING, COLOR, EXTRA STRUT, TRACK MOUNT,
+  TRACK LIFT, TOP SEAL, …). Note: "PRICE FOR FRAMING" on window
   packages stays in etc per Weston's rule (only window/glass/lite/insert-class
   labels go to windows).
+- Door-header detection has priority over classification: a card whose header is
+  a bare model code is always the door, even if nearby text mentions insulated.
 
 ## Expected outputs (net prices)
 1. 9208 9'x8' Lustra Black, slim windows → door 1191.30, windows 0.00,

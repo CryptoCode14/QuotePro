@@ -54,7 +54,7 @@ function DialogContent({
       <DialogOverlay />
       <BaseDialog.Popup
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl border border-border bg-card p-6 text-card-foreground shadow-[0_24px_80px_rgb(0,0,0,0.25)] duration-200 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-2xl bg-surface p-6 text-ink shadow-pop duration-200 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
           className
         )}
         {...props}
@@ -63,7 +63,7 @@ function DialogContent({
         {showCloseButton && (
           <BaseDialog.Close
             aria-label="Close"
-            className="absolute top-4 right-4 cursor-pointer rounded-lg p-1 text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="absolute top-4 right-4 cursor-pointer rounded-lg p-1 text-muted transition-colors outline-none hover:bg-fill hover:text-ink focus-visible:ring-2 focus-visible:ring-accent"
           >
             <X className="size-4" />
           </BaseDialog.Close>
@@ -112,7 +112,7 @@ function DialogDescription({
 }: React.ComponentProps<typeof BaseDialog.Description>) {
   return (
     <BaseDialog.Description
-      className={cn("text-[15px] text-muted-foreground", className)}
+      className={cn("text-[15px] text-muted", className)}
       {...props}
     />
   );

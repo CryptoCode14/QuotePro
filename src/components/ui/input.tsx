@@ -12,7 +12,7 @@ function Input({
     <BaseInput
       type={type}
       className={cn(
-        "h-12 w-full rounded-xl border border-input bg-background px-4 text-[15px] shadow-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50",
+        "h-12 w-full rounded-xl border border-transparent bg-fill px-4 text-[15px] text-ink shadow-inset outline-none transition-all duration-150 placeholder:text-muted/60 focus-visible:border-accent focus-visible:bg-surface focus-visible:shadow-none focus-visible:ring-4 focus-visible:ring-accent/20 disabled:cursor-not-allowed disabled:opacity-50",
         className
       )}
       {...props}

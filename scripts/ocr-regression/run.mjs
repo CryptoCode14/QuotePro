@@ -142,9 +142,24 @@ edge("multiplier never a price", `9208 Multiplier: 1.268
 List Price: 949.00
 1% iStore Discount Applied`, { door: 0, windows: 0, etc: 0 });
 
+edge("insulated option is windows", `9208 Multiplier: 1.268
+List Price: 949.00 NetPrice: 1191.30
+1% iStore Discount Applied
+PRICE FOR INSULATED Multiplier: 1.268
+List Price: 206.58 NetPrice: 227.83
+1% iStore Discount Applied`, { door: 1191.3, windows: 227.83, etc: 0 });
+
+edge("door keeps priority beside insulated option", `9208
+Multiplier: 1.268
+List Price: 949.00 NetPrice: 1191.30
+1% iStore Discount Applied
+PRICE FOR INSULATION Multiplier: 1.268
+List Price: 61.00 Net Price: 69.24
+1% iStore Discount Applied`, { door: 1191.3, windows: 69.24, etc: 0 });
+
 console.log(
   failures === 0
-    ? `PASS — ${fixtureCount} fixtures + 12 edge cases`
+    ? `PASS — ${fixtureCount} fixtures + 14 edge cases`
     : `${failures} FAILURE(S)`,
 );
 process.exit(failures === 0 ? 0 : 1);

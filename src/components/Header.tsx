@@ -10,7 +10,7 @@ interface HeaderProps {
 }
 
 const iconBtn =
-  "flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-surface hover:text-ink";
+  "flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink";
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
@@ -39,7 +39,7 @@ export function Header({
   onPrint,
 }: HeaderProps) {
   return (
-    <header className="no-print sticky top-0 z-40 h-14 border-b border-hairline bg-bg/80 backdrop-blur">
+    <header className="no-print sticky top-0 z-40 h-14 bg-bg/80 backdrop-blur">
       {/* Full-bleed: content rides the viewport edges, never inset to the
           content column. */}
       <div className="flex h-full items-center justify-between gap-4 px-4 sm:px-6">

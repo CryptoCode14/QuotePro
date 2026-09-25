@@ -10,30 +10,53 @@
   --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-num: "Inter", ui-sans-serif, system-ui, sans-serif;
 
-  /* Command Deck color tokens (light) — spec §4 */
-  --color-bg: oklch(0.985 0 0);
-  --color-surface: oklch(1 0 0);
+  /* Premium surface system (light) — Apple-style tonal depth.
+     Page is tonal gray; cards are pure white lifted by soft diffuse
+     shadows. Depth comes from elevation, not hairlines. */
+  --color-bg: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-fill: #f5f5f7; /* inset control fill on white cards */
   --color-ink: oklch(0.22 0 0);
   --color-muted: oklch(0.55 0 0);
-  --color-hairline: oklch(0.9 0 0);
-  --color-accent: oklch(0.6 0.15 250);
-  --color-ok: oklch(0.65 0.15 150);
-  --color-warn: oklch(0.7 0.14 80);
-  --color-bad: oklch(0.6 0.16 25);
+  --color-hairline: oklch(0.92 0 0); /* rare: white-on-white separation only */
+
+  /* Signature accent — Apple system blue, disciplined use only. */
+  --color-accent: #0071e3;
+
+  /* Status — real pastel tints with colored text, not monochrome.
+     Tokens are the vivid text color; surfaces use them at low opacity
+     (bg-ok/15 etc.) so both themes tint correctly. */
+  --color-ok: #137333;
+  --color-warn: #b45309;
+  --color-bad: #c5221f;
+
+  /* Elevation — soft, diffuse, Apple-like. */
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.07);
+  --shadow-pop: 0 2px 6px rgb(0 0 0 / 0.08), 0 20px 48px rgb(0 0 0 / 0.14);
+  --shadow-accent: 0 6px 20px rgb(0 113 227 / 0.35);
+  --shadow-inset: inset 0 1px 2px rgb(0 0 0 / 0.05);
 }
 
 /* Dark-mode token overrides — scope to `.dark` so every token utility
-   (bg-bg, text-ink, border-hairline, …) follows the theme class. */
+   (bg-bg, text-ink, shadow-card, …) follows the theme class. */
 .dark {
-  --color-bg: oklch(0.16 0 0);
-  --color-surface: oklch(0.205 0 0);
+  --color-bg: oklch(0.1 0 0);
+  --color-surface: oklch(0.19 0 0);
+  --color-fill: oklch(0.25 0 0);
   --color-ink: oklch(0.93 0 0);
-  --color-muted: oklch(0.65 0 0);
+  --color-muted: oklch(0.62 0 0);
   --color-hairline: oklch(1 0 0 / 0.08);
-  --color-accent: oklch(0.7 0.14 250);
-  --color-ok: oklch(0.72 0.14 150);
-  --color-warn: oklch(0.75 0.13 80);
-  --color-bad: oklch(0.68 0.15 25);
+
+  --color-accent: #0a84ff;
+
+  --color-ok: #81c995;
+  --color-warn: #fbbf24;
+  --color-bad: #f28b82;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.5);
+  --shadow-pop: 0 4px 12px rgb(0 0 0 / 0.5), 0 24px 64px rgb(0 0 0 / 0.6);
+  --shadow-accent: 0 6px 24px rgb(10 132 255 / 0.45);
+  --shadow-inset: inset 0 1px 2px rgb(0 0 0 / 0.35);
 }
 
 @layer base {
@@ -95,11 +118,12 @@
 
 /* ------------------------------------------------------------------ */
 /* 600ms OCR highlight flash for filled fields (spec §7, §9).
-   Accent-tinted; adapts to both themes. Triggered via the `.flash` class. */
+   Green-tinted "accepted" signal; adapts to both themes. Triggered via
+   the `.flash` class. */
 /* ------------------------------------------------------------------ */
 @keyframes qp-flash {
   0% {
-    background-color: color-mix(in oklch, var(--color-accent) 20%, transparent);
+    background-color: color-mix(in oklch, var(--color-ok) 22%, transparent);
   }
   100% {
     background-color: transparent;

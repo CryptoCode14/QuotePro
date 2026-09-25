@@ -1,8 +1,8 @@
 {
  "0a4d9d2706b648cf645a88707cb2ca2604679569095e99633140a718c06398cf": {
   "door": 993.84,
-  "windows": 0,
-  "etc": 117.41
+  "windows": 69.24,
+  "etc": 48.17
  },
  "0b2a48129f735cdd7d3d701e4f87be29e3acf0f08825e4ab4aadb81551edd66f": {
   "door": 2090.36,
@@ -26,8 +26,8 @@
  },
  "2b7b1959c7a6f618e1a740114425ea44e97419dc3572019b6cf7e3d001aaabbb": {
   "door": 993.84,
-  "windows": 0,
-  "etc": 232.79
+  "windows": 69.24,
+  "etc": 163.55
  },
  "3099e4de5bae0e2460ccd02ac0ce6b9721d72fe722b02a711debab6e92fa9b1c": {
   "door": 1244.32,
@@ -41,8 +41,8 @@
  },
  "37dce7917656185e351a08d7370f048732cf68ab0be3d96892659662e8a88072": {
   "door": 1772.8,
-  "windows": 0,
-  "etc": 365.9
+  "windows": 365.9,
+  "etc": 0
  },
  "3a01bc3ed78d6c4cc0fec01672a6c6e641c7fcc3a180272f903e25bed2451d42": {
   "door": 1224.17,
@@ -86,13 +86,13 @@
  },
  "62a443094fa40a8088af73e11b0b2b2205e7f6208ab8f769bd5f2433e4642704": {
   "door": 993.84,
-  "windows": 0,
-  "etc": 232.79
+  "windows": 69.24,
+  "etc": 163.55
  },
  "662c2c7dc98497ab01f0ff891feb7d289f52b6d86f0661ea7d51f4f9d259dffe": {
   "door": 2667.4,
-  "windows": 0,
-  "etc": 635.57
+  "windows": 393.23,
+  "etc": 242.34
  },
  "692ff2cd65c72f1d421afce3545c39d0f2820532e6f704e8e645a97c2b0b21fe": {
   "door": 1053.28,
@@ -106,8 +106,8 @@
  },
  "80eb51a41b11eb6a302f43581207321d77f4d3719ee2cc57af4ba46ffaa71ceb": {
   "door": 1890.12,
-  "windows": 0,
-  "etc": 545.81
+  "windows": 327.69,
+  "etc": 218.12
  },
  "aadcca0b0fb67f2542f189255a781a76523f64699b2163cb32f014508f2651ed": {
   "door": 1293.34,
@@ -121,8 +121,8 @@
  },
  "b9365047614d15804269a8f5d65132d1b3cfc6b5c2457f4e8ec20a172fb52688": {
   "door": 993.84,
-  "windows": 0,
-  "etc": 117.41
+  "windows": 69.24,
+  "etc": 48.17
  },
  "c9e63bc19f619c068defc9602b3926afdcb990b35619405a1528cb7fab8233a1": {
   "door": 2461.59,
@@ -166,8 +166,8 @@
  },
  "f7082757f3a589fad76cb1bf385df34ee81fb8302b5de6c7cef42c481be7074a": {
   "door": 2420.78,
-  "windows": 0,
-  "etc": 1172.15
+  "windows": 227.83,
+  "etc": 944.32
  },
  "ffd6292b477d85a568303e21b59fada6ac70cdd119d3bff4edfb922b75e8e050": {
   "door": 801.33,

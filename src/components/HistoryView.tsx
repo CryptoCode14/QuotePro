@@ -75,7 +75,7 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
 
       <div className="mt-4 space-y-2.5">
         {entries.length === 0 && (
-          <div className="flex flex-col items-center gap-2 rounded-2xl border border-hairline bg-surface px-4 py-12 text-center">
+          <div className="flex flex-col items-center gap-2 rounded-2xl bg-surface px-4 py-12 text-center shadow-card">
             <History size={20} strokeWidth={1.75} className="text-muted" />
             <p className="text-[13px] text-muted">
               No history yet — scan a screenshot or solve a pricing to start
@@ -86,7 +86,7 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
         {entries.map((e) => (
           <article
             key={e.id}
-            className="rounded-2xl border border-hairline bg-surface p-4"
+            className="rounded-2xl bg-surface p-4 shadow-card"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2.5">
@@ -107,7 +107,7 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
               <button
                 type="button"
                 onClick={() => onRestore(e)}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-bg hover:text-ink"
+                className="flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-fill hover:text-ink"
                 title="Load these costs into the workbench"
               >
                 <RotateCcw size={13} strokeWidth={2} />
