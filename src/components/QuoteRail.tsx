@@ -85,7 +85,7 @@ function GhostBtn({
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[12px] font-medium text-muted transition-colors duration-150 hover:bg-fill hover:text-ink"
+      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-[12px] font-medium text-muted transition-all duration-150 hover:bg-fill hover:text-ink active:scale-[0.97]"
     >
       <Icon size={14} strokeWidth={1.75} />
       {label}
@@ -142,12 +142,14 @@ export function QuoteRail({
 
       {/* Hero — deep-ink panel with white tabular numerals. The ink block
           floats on the white card in light mode; in dark mode a hairline
-          white edge keeps it distinct from the dark card. Clamped to fit
-          the rail; Inter tabular numerals keep every width stable. */}
-      <div className="relative mt-3 overflow-hidden rounded-2xl bg-gradient-to-b from-[#333338] via-[#1c1c20] to-[#101013] px-5 py-5 shadow-inset dark:border dark:border-white/10">
+          white edge keeps it distinct from the dark card. An inset top
+          highlight gives the glassy keynote-grade edge; the sheen overlay
+          stays subtle. Clamped to fit the rail; Inter tabular numerals keep
+          every width stable. */}
+      <div className="relative mt-3 overflow-hidden rounded-2xl bg-gradient-to-b from-[#333338] via-[#1c1c20] to-[#101013] px-5 py-5 shadow-[inset_0_1px_0_rgb(255_255_255/0.14),inset_0_-1px_0_rgb(0_0_0/0.4)] dark:border dark:border-white/10">
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/[0.07] to-transparent"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/[0.09] via-white/[0.02] to-transparent"
         />
         <div className="relative text-[11px] font-semibold uppercase tracking-[0.1em] text-white/55">
           Grand total
@@ -221,10 +223,17 @@ export function QuoteRail({
         type="button"
         onClick={onSolve}
         disabled={solving}
-        className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-accent text-[13px] font-semibold uppercase tracking-[0.06em] text-white shadow-accent transition-all duration-150 hover:brightness-110 active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 disabled:shadow-none"
+        className="group relative mt-6 flex h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-accent text-[13px] font-semibold uppercase tracking-[0.06em] text-white shadow-accent transition-all duration-150 hover:brightness-110 active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 disabled:shadow-none"
       >
-        <Calculator size={16} strokeWidth={2} />
-        {solving ? "SOLVING…" : "SOLVE PRICING"}
+        {/* Sheen sweep on hover — keynote-grade tactile feedback. */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 ease-out group-hover:translate-x-full"
+        />
+        <Calculator size={16} strokeWidth={2} className="relative" />
+        <span className="relative">
+          {solving ? "SOLVING…" : "SOLVE PRICING"}
+        </span>
       </button>
 
       {solved && (

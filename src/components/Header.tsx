@@ -10,7 +10,7 @@ interface HeaderProps {
 }
 
 const iconBtn =
-  "flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors duration-150 hover:bg-ink/[0.06] hover:text-ink";
+  "flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-all duration-150 hover:bg-ink/[0.06] hover:text-ink active:scale-95";
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();

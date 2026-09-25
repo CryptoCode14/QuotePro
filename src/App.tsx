@@ -596,8 +596,10 @@ export default function App() {
 
       {activeTab === "quote" && (
         <>
-          {/* Mobile sticky total bar (below the sticky header + tab bar) */}
-          <div className="no-print sticky top-[100px] z-30 bg-bg/90 backdrop-blur lg:hidden">
+          {/* Mobile sticky total bar (below the sticky header + tab bar).
+              Frosted-glass material with a soft drop shadow so it reads as
+              a floating layer over the scrolling content beneath it. */}
+          <div className="no-print sticky top-[100px] z-30 bg-bg/75 shadow-[0_12px_32px_-12px_rgb(0_0_0/0.28)] backdrop-blur-xl backdrop-saturate-150 lg:hidden">
             <div className="mx-auto flex max-w-[1560px] items-baseline justify-between px-4 py-2 sm:px-6">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
                 Grand total

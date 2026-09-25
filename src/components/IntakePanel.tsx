@@ -144,13 +144,22 @@ export function IntakePanel({
           if (e.dataTransfer.files.length > 0) onDropFiles(e.dataTransfer.files);
         }}
         className={cn(
-          "flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed bg-surface px-6 py-10 text-center shadow-card transition-all duration-150",
+          "flex min-h-[180px] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed bg-surface px-6 py-10 text-center shadow-card transition-all duration-150 active:scale-[0.995]",
           dragOver
             ? "border-accent bg-accent/[0.06]"
             : "border-ink/15 hover:border-accent hover:bg-accent/[0.03]",
         )}
       >
-        <ScanLine className="h-7 w-7 text-muted" aria-hidden />
+        <div className="relative mb-1">
+          {/* Soft accent halo — the empty state's quiet invitation. */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 -m-4 rounded-full bg-accent/15 blur-2xl"
+          />
+          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-accent/[0.08]">
+            <ScanLine className="h-7 w-7 text-accent" aria-hidden />
+          </div>
+        </div>
         <span className="text-[15px] font-medium text-ink">Paste screenshot</span>
         <span className="text-[13px] text-muted">⌘V / Ctrl+V anywhere · or drag a file</span>
       </button>
@@ -212,7 +221,7 @@ export function IntakePanel({
                   type="button"
                   title={card.label}
                   onClick={() => onCardClick(card.kind)}
-                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors duration-150 hover:bg-fill"
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-150 hover:bg-fill active:scale-[0.99]"
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[14px] font-medium text-ink">
