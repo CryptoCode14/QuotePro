@@ -65,6 +65,8 @@ export interface ApiKeyRow {
   prefix: string | null;
   /** Owner of this key — auth.users id. Keys are strictly per-user. */
   user_id: string | null;
+  /** Granted scopes, e.g. ["calculate","quotes:write"]. Null only for legacy rows. */
+  scopes: string[] | null;
   created_at: string | null;
   last_used_at: string | null;
   revoked_at: string | null;
@@ -83,7 +85,7 @@ export async function verifyApiKey(
   if (!token) return null;
   const { data, error } = await sb
     .from("api_keys")
-    .select("id, name, prefix, user_id, created_at, last_used_at, revoked_at")
+    .select("id, name, prefix, user_id, scopes, created_at, last_used_at, revoked_at")
     .eq("key_hash", sha256hex(token))
     .is("revoked_at", null)
     .maybeSingle();
@@ -116,16 +118,69 @@ export async function getSessionUser(req: ApiReq, sbAnon: SupabaseClient) {
  * Returns null when neither authenticates. This is the single choke point
  * for per-user isolation: every user-scoped query filters on its result.
  */
+export interface Caller {
+  userId: string;
+  /** "session" callers (the user in their own app) are unrestricted. */
+  via: "api_key" | "session";
+  /** Granted scopes for api_key callers; null = unrestricted (session). */
+  scopes: string[] | null;
+}
+
 export async function resolveCaller(
   req: ApiReq,
   sb: SupabaseClient,
   sbAnon: SupabaseClient,
-): Promise<{ userId: string } | null> {
+): Promise<Caller | null> {
   const key = await verifyApiKey(req, sb);
-  if (key && key.user_id) return { userId: key.user_id };
+  if (key && key.user_id)
+    return { userId: key.user_id, via: "api_key", scopes: key.scopes ?? DEFAULT_KEY_SCOPES };
   const user = await getSessionUser(req, sbAnon);
-  if (user) return { userId: user.id };
+  if (user) return { userId: user.id, via: "session", scopes: null };
   return null;
+}
+
+// --- API key scopes ----------------------------------------------------------
+
+/**
+ * Scopes grant an API key access to specific /v1 capabilities. Session-JWT
+ * callers (the signed-in user in the app) bypass scope checks entirely.
+ * - calculate    → POST /v1/calculate
+ * - quotes:read  → GET  /v1/quotes
+ * - quotes:write → POST /v1/quotes
+ * - keys:read    → GET  /v1/api-keys
+ * - keys:manage  → POST /v1/api-keys (mint) and DELETE /v1/api-keys (revoke)
+ */
+export const SCOPE_CATALOG = [
+  "calculate",
+  "quotes:read",
+  "quotes:write",
+  "keys:read",
+  "keys:manage",
+] as const;
+
+/** Default scopes for a newly minted key when the caller names none. */
+export const DEFAULT_KEY_SCOPES: string[] = ["calculate", "quotes:read", "quotes:write"];
+
+/** Validate a caller-supplied scope list. Returns null when invalid. */
+export function normalizeScopes(v: unknown): string[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: string[] = [];
+  for (const s of v) {
+    if (typeof s !== "string") return null;
+    if (!(SCOPE_CATALOG as readonly string[]).includes(s)) return null;
+    if (!out.includes(s)) out.push(s);
+  }
+  return out;
+}
+
+/** True when this caller may use the given scope. */
+export function callerHasScope(caller: Caller, scope: string): boolean {
+  return caller.scopes === null || caller.scopes.includes(scope);
+}
+
+/** True when a raw key row carries the given scope (legacy null → defaults). */
+export function keyHasScope(key: ApiKeyRow, scope: string): boolean {
+  return (key.scopes ?? DEFAULT_KEY_SCOPES).includes(scope);
 }
 
 /**
@@ -149,6 +204,10 @@ export function bad(res: ApiRes, message: string): void {
 
 export function unauth(res: ApiRes, message = "Unauthorized"): void {
   res.status(401).json({ error: message });
+}
+
+export function forbidden(res: ApiRes, message = "Forbidden"): void {
+  res.status(403).json({ error: message });
 }
 
 export function notFound(res: ApiRes, message = "Not found"): void {

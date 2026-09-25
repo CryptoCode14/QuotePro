@@ -1,13 +1,15 @@
 /**
  * POST /v1/calculate — run the QuotePro pricing math on dealer costs.
  *
- * Auth: Bearer API key (qp_live_…).
+ * Auth: Bearer <redacted> key (qp_live_…) with the `calculate` scope.
  * Body: { door, windows, miscellaneous (aliases: misc, etc),
  *         multiplier?, base?, pct?, installation?, fuel? }
  * Never fetches external pricing — the caller passes dealer cost in.
  */
 import {
   bad,
+  forbidden,
+  keyHasScope,
   methodNotAllowed,
   ok,
   serviceClient,
@@ -24,6 +26,8 @@ export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
   const sb = serviceClient();
   const key = await verifyApiKey(req, sb);
   if (!key) return unauth(res, "Missing or invalid API key");
+  if (!keyHasScope(key, "calculate"))
+    return forbidden(res, "This API key lacks the 'calculate' scope");
 
   const parsed = parseQuoteInputs(req.body);
   if (!parsed.ok) return bad(res, parsed.error);

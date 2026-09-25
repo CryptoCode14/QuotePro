@@ -4,6 +4,8 @@
  * Auth: Bearer API key OR end-user session JWT. Both resolve to exactly one
  * user id (a key is attributed to its owning user_id); every read and write
  * is scoped to that id. No cross-user access anywhere.
+ * API keys additionally need scopes: `quotes:read` for GET, `quotes:write`
+ * for POST. Session-JWT callers are unrestricted.
  *
  * GET  → paginated list of the caller's quotes, newest first.
  *        ?limit= (default 25, max 100), ?offset= (default 0).
@@ -14,6 +16,8 @@
 import {
   anonClient,
   bad,
+  callerHasScope,
+  forbidden,
   methodNotAllowed,
   ok,
   resolveCaller,
@@ -41,6 +45,8 @@ export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
   if (!caller) return unauth(res, "Missing or invalid API key or session");
 
   if (req.method === "GET") {
+    if (!callerHasScope(caller, "quotes:read"))
+      return forbidden(res, "This API key lacks the 'quotes:read' scope");
     const limit = Math.min(Math.max(queryInt(req.query.limit, 25), 1), 100);
     const offset = Math.max(queryInt(req.query.offset, 0), 0);
     const { data, error } = await sb
@@ -55,6 +61,8 @@ export default async function handler(req: ApiReq, res: ApiRes): Promise<void> {
   }
 
   if (req.method === "POST") {
+    if (!callerHasScope(caller, "quotes:write"))
+      return forbidden(res, "This API key lacks the 'quotes:write' scope");
     const body = (req.body ?? {}) as Record<string, unknown>;
     const parsed = parseQuoteInputs(body);
     if (!parsed.ok) return bad(res, parsed.error);
