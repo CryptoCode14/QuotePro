@@ -1,0 +1,17 @@
+x
+Pricing Details
+Product: 12' 2" X8' 0" | 3200 | COMPLETE DOOR | POLYSTYRENE (EPS) | STANDARD WHITE | INSULATED TEMPERED | FULL VISION | SECTION 4 FULL VISION |
+INSIDE SLIDE LOCK (#2) | TORSION | 2" | REVERSE ANGLE | STANDARD | 15" RADIUS | DISTRIBUTOR, TRACK-SPRING-LOCK BAR LOOSE | 2 EXTRA STRUTS |
+FV200U | NOLOCK HOLE |
+3200 Multiplier: 1.114
+ListPrice: 1,275.00 NetPrice: 1406.15
+1% iStore Discount Applied
+PRICE FOR INSULATED TEMPERED FULL VISION Multiplier: 1.114
+List Price: 910.32 NetPrice: 1003.96
+1% iStore Discount Applied
+PRICE FOR EXTRA STRUT Multiplier: 1.114
+List Price: 56.21 NetPrice: 61.99
+1% iStore Discount Applied
+PRICE FOR FV200U Multiplier: 1.114
+List Price: 133.83 Net Price: 147.60
+1% iStore Discount Applied
