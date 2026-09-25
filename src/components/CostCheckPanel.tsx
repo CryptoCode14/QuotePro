@@ -6,22 +6,11 @@ interface CostCheckPanelProps {
   c: CalcResult;
 }
 
-function CheckRow({
-  label,
-  sub,
-  value,
-}: {
-  label: string;
-  sub: string;
-  value: string;
-}) {
+function ComponentRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <div className="font-sans text-sm font-medium text-ink">{label}</div>
-        <div className="font-num mt-0.5 text-xs text-muted">{sub}</div>
-      </div>
-      <div className="font-num text-base font-medium text-ink">{value}</div>
+    <div className="flex items-baseline justify-between gap-4">
+      <span className="text-[13px] text-muted">{label}</span>
+      <span className="font-num text-[14px] text-ink">${value}</span>
     </div>
   );
 }
@@ -50,9 +39,13 @@ const VERDICT_STYLES: Record<
 };
 
 /**
- * First-class 2× cost-check panel — full center-column width, distinct surface.
- * Rows + verdict only; no bars, no meters. All numbers are read from the
- * frozen calc() result (component rows show the trivial ×mult×2 audit trail).
+ * First-class 2× cost-check panel — Weston's manual OCR cross-check against
+ * iStore. The three cost components are summed first (Total materials is the
+ * star — the number he verifies against iStore), then doubled with the
+ * multiplier kept visible so the math stays auditable.
+ *
+ * Display restructuring only: every number is read from the frozen calc()
+ * result (doubleCost = 2 × (door+windows+misc) × multiplier).
  */
 export function CostCheckPanel({ c }: CostCheckPanelProps) {
   // Signed band logic — shared with QuoteRail via gapVerdict().
@@ -63,35 +56,41 @@ export function CostCheckPanel({ c }: CostCheckPanelProps) {
     <section className="rounded-2xl bg-surface p-5 shadow-card">
       <div className="flex items-center justify-between gap-4">
         <Eyebrow>2× COST CHECK</Eyebrow>
-        <span className="text-xs text-muted">each cost × multiplier × 2</span>
+        <span className="text-xs text-muted">
+          sum the costs, then double — cross-check vs iStore
+        </span>
       </div>
 
-      <div className="mt-4 space-y-3">
-        <CheckRow
-          label="Door ×2"
-          sub={`$${fmt$(c.door)} × ${c.mult.toFixed(2)} × 2`}
-          value={`$${fmt$(c.door * c.mult * 2)}`}
-        />
-        <CheckRow
-          label="Windows ×2"
-          sub={`$${fmt$(c.windows)} × ${c.mult.toFixed(2)} × 2`}
-          value={`$${fmt$(c.windows * c.mult * 2)}`}
-        />
-        <CheckRow
-          label="Misc ×2"
-          sub={`$${fmt$(c.etc)} × ${c.mult.toFixed(2)} × 2`}
-          value={`$${fmt$(c.etc * c.mult * 2)}`}
-        />
-      </div>
-
-      <div className="mt-5 space-y-3">
-        <div className="flex items-center justify-between gap-4">
-          <span className="font-sans text-sm font-medium text-ink">
-            Total 2× cost
-          </span>
+      {/* The sum — grouped in a tonal inset block (elevation, not hairlines).
+          Total materials is the star of the panel. */}
+      <div className="mt-4 rounded-xl bg-fill p-4">
+        <div className="space-y-2">
+          <ComponentRow label="Door" value={fmt$(c.door)} />
+          <ComponentRow label="Windows" value={fmt$(c.windows)} />
+          <ComponentRow label="Misc" value={fmt$(c.etc)} />
+        </div>
+        <div className="mt-3 flex items-baseline justify-between gap-4">
+          <span className="text-sm font-semibold text-ink">Total materials</span>
           <span className="font-num text-xl font-semibold text-ink">
-            {`$${fmt$(c.doubleCost)}`}
+            ${fmt$(c.totalMaterials)}
           </span>
+        </div>
+      </div>
+
+      {/* The double — multiplier stays visible for the audit trail. */}
+      <div className="mt-4 space-y-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="font-sans text-sm font-medium text-ink">
+              Total × 2
+            </div>
+            <div className="font-num mt-0.5 text-xs text-muted">
+              ${fmt$(c.totalMaterials)} × {c.mult.toFixed(2)} × 2
+            </div>
+          </div>
+          <div className="font-num text-xl font-semibold text-ink">
+            ${fmt$(c.doubleCost)}
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-4">
@@ -99,7 +98,7 @@ export function CostCheckPanel({ c }: CostCheckPanelProps) {
             Grand total
           </span>
           <span className="font-num text-base font-medium text-muted">
-            {`$${fmt$(c.grandTotal)}`}
+            ${fmt$(c.grandTotal)}
           </span>
         </div>
 

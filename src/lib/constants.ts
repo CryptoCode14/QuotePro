@@ -11,16 +11,18 @@ export const APPS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbyB7fWAsd8MQatdMw1dVDiYf4JYMpm2IHmTQZ9XrGuL_Gqi9iu8VdCwo3wlqUr1jODV/exec";
 export const FILE_ID = "15FSowE6FmdicGyH_eOCFBCIfDW0BAaj_";
 
-/** Field defaults exactly as hardcoded in the v5 file (mult = 1.00). */
+/** Field defaults — everything zeroed until a screenshot is pasted.
+    mult stays 1.00 as the neutral identity (it is not a cost). Weston
+    2026-09-25: no demo numbers on fresh load. */
 export const FIELD_DEFAULTS = {
-  door: "1200",
-  windows: "250",
-  etc: "92.50",
+  door: "0.00",
+  windows: "0.00",
+  etc: "0.00",
   mult: "1.00",
-  base: "2000",
-  pct: "25",
-  inst: "326.40",
-  fuel: "108.80",
+  base: "0",
+  pct: "0",
+  inst: "0",
+  fuel: "0",
 } as const;
 
 export type FieldKey = keyof typeof FIELD_DEFAULTS;
