@@ -66,31 +66,49 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 }
 
 export function HistoryView({ onRestore }: HistoryViewProps) {
+  const PAGE = 50;
   const [quotes, setQuotes] = useState<SavedQuote[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [detail, setDetail] = useState<SavedQuote | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const load = async () => {
+  const fetchPage = async (search: string, offset: number) => {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) throw new Error("Sign in to view saved quotes.");
+    const params = new URLSearchParams({
+      limit: String(PAGE),
+      offset: String(offset),
+    });
+    if (search.trim()) params.set("q", search.trim());
+    const res = await fetch(`/v1/quotes?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok)
+      throw new Error(
+        (json && (json.error || json.message)) ||
+          `Could not load quotes (${res.status})`,
+      );
+    return {
+      rows: (Array.isArray(json?.quotes) ? json.quotes : []) as SavedQuote[],
+      hasMore: json?.has_more === true,
+    };
+  };
+
+  const load = async (search: string) => {
     setLoading(true);
     setError("");
     try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) throw new Error("Sign in to view saved quotes.");
-      const res = await fetch("/v1/quotes?limit=100", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json().catch(() => null);
-      if (!res.ok)
-        throw new Error(
-          (json && (json.error || json.message)) ||
-            `Could not load quotes (${res.status})`,
-        );
-      setQuotes(Array.isArray(json?.quotes) ? json.quotes : []);
+      const { rows, hasMore } = await fetchPage(search, 0);
+      setQuotes(rows);
+      setHasMore(hasMore);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load quotes.");
     } finally {
@@ -98,9 +116,33 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
     }
   };
 
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const { rows, hasMore: more } = await fetchPage(
+        debouncedQuery,
+        quotes.length,
+      );
+      setQuotes((qs) => [...qs, ...rows]);
+      setHasMore(more);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load more quotes.");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // Debounce the search box so every keystroke doesn't hit the API.
   useEffect(() => {
-    load();
-  }, []);
+    const t = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  useEffect(() => {
+    load(debouncedQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery]);
 
   const deleteQuote = async (id: string) => {
     if (deleting) return;
@@ -129,16 +171,6 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
     }
   };
 
-  const q = query.trim().toLowerCase();
-  const filtered = q
-    ? quotes.filter((quote) =>
-        [quote.door_model, quote.door_specs, quote.door_options, quote.note]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(q),
-      )
-    : quotes;
 
   return (
     <section
@@ -184,14 +216,14 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
             <p className="text-[13px] font-medium text-bad">{error}</p>
             <button
               type="button"
-              onClick={load}
+              onClick={() => load(debouncedQuery)}
               className="mt-3 rounded-lg px-3 py-1.5 text-[12px] font-semibold uppercase tracking-[0.06em] text-bad transition-colors hover:bg-bad/10"
             >
               Retry
             </button>
           </div>
         )}
-        {!loading && !error && filtered.length === 0 && (
+        {!loading && !error && quotes.length === 0 && (
           <div className="flex flex-col items-center gap-2 rounded-2xl bg-surface px-4 py-12 text-center shadow-card">
             <History size={20} strokeWidth={1.75} className="text-muted" />
             <p className="text-[13px] text-muted">
@@ -201,7 +233,7 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
             </p>
           </div>
         )}
-        {filtered.map((quote) => (
+        {quotes.map((quote) => (
           <article
             key={quote.id}
             onClick={() => setDetail(quote)}
@@ -307,11 +339,28 @@ export function HistoryView({ onRestore }: HistoryViewProps) {
         ))}
       </div>
 
-      {!loading && !error && quotes.length >= 100 && (
-        <p className="mt-4 text-center text-[12px] text-muted">
-          Showing the 100 most recent — refine your search to find older
-          quotes.
-        </p>
+      {!loading && !error && (quotes.length > 0 || hasMore) && (
+        <div className="mt-4 text-center">
+          {hasMore ? (
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="rounded-xl bg-surface px-5 py-2.5 text-[12px] font-semibold uppercase tracking-[0.06em] text-ink shadow-card transition-colors hover:bg-fill disabled:opacity-60"
+            >
+              {loadingMore ? "Loading…" : `Load more (${quotes.length} shown)`}
+            </button>
+          ) : (
+            <p className="text-[12px] text-muted">
+              Showing all {quotes.length}{" "}
+              {quotes.length === 1 ? "quote" : "quotes"}
+              {debouncedQuery.trim()
+                ? ` matching “${debouncedQuery.trim()}”`
+                : ""}
+              .
+            </p>
+          )}
+        </div>
       )}
 
       {/* ---------- full quote detail ---------- */}
