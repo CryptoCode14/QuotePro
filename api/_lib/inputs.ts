@@ -5,7 +5,7 @@
  * frozen — do not reimplement it here). This module only validates/aliases
  * inputs and shapes the response.
  */
-import { calc, r2 } from "../../src/lib/calc";
+import { calc, r2, solvePricing } from "../../src/lib/calc";
 
 export interface QuoteInputs {
   door: number;
@@ -91,6 +91,34 @@ export interface ComputedQuote {
   final_price: number;
   margin: number;
   breakdown: Record<string, number>;
+}
+
+export interface SolvedQuote extends ComputedQuote {
+  installation: number;
+  fuel: number;
+}
+
+/**
+ * Run the frozen Solve Pricing math: calc → solvePricing → calc again with
+ * solved installation/fuel. Identical to the app's SOLVE PRICING button.
+ * Incoming installation/fuel are accepted but always overwritten by the
+ * solver (they don't affect its inputs: expenses and subBefore exclude them).
+ */
+export function solveQuote(i: QuoteInputs): SolvedQuote {
+  const before = calc({
+    door: i.door,
+    windows: i.windows,
+    etc: i.misc,
+    mult: i.multiplier,
+    base: i.base,
+    pct: i.pct,
+    inst: i.installation,
+    fuel: i.fuel,
+  });
+  const { inst, fuel } = solvePricing(before);
+  const solved: QuoteInputs = { ...i, installation: inst, fuel };
+  const q = computeQuote(solved);
+  return { ...q, installation: r2(inst), fuel: r2(fuel) };
 }
 
 /**
