@@ -70,7 +70,10 @@ export interface PricingParseResult {
   doorModel: string;
   /** Size segment of the Product line, e.g. `10'2" X 8'0"` (raw, editable). */
   doorSize: string;
-  /** Remaining Product segments: insulation, color, windows, track, options… */
+  /** Remaining Product segments: insulation, color, windows, track, options…
+   *  Each priced option carries its individual net price from the matching
+   *  pricing card, e.g. "INTELLICORE ($1,240.50)"; unpriced options stay
+   *  plain text. */
   doorOptions: string[];
 }
 
@@ -199,6 +202,71 @@ function classifyLabel(label: string): CardKind {
   // FV + digits (e.g. FV200U) = Full Vision glass — always windows.
   if (/FV\d/.test(compact)) return "windows";
   return WINDOW_KEYWORDS.some((k) => compact.includes(k)) ? "windows" : "etc";
+}
+
+/** Uppercase alphanumerics only — the basis for fuzzy option/card matching. */
+function compact(s: string): string {
+  return s.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/** Significant word tokens (length >= 4) for overlap matching. */
+function sigTokens(s: string): string[] {
+  return s
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter((t) => t.length >= 4);
+}
+const TOKEN_STOP = new Set(["PRICE", "WITH", "FROM", "COMPLETE"]);
+
+/**
+ * Does this Product-line option describe the same line item as this priced
+ * card? Conservative on purpose: containment of the compacted strings, or at
+ * least two shared significant tokens. Attaching the wrong price is worse
+ * than attaching none (no-guess rule).
+ */
+function optionMatchesCard(option: string, label: string): boolean {
+  const o = compact(option);
+  const l = compact(label);
+  if (o.length < 3 || l.length < 3) return false;
+  if (o.includes(l) || l.includes(o)) return true;
+  const lt = new Set(sigTokens(label).filter((t) => !TOKEN_STOP.has(t)));
+  if (lt.size === 0) return false;
+  const shared = sigTokens(option).filter(
+    (t) => !TOKEN_STOP.has(t) && lt.has(t),
+  ).length;
+  return shared >= 2;
+}
+
+function money(n: number): string {
+  return (
+    "$" +
+    n.toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  );
+}
+
+/**
+ * Bake each Product-line option's individual net price into the saved
+ * options text: "INTELLICORE ($1,240.50) | STANDARD WHITE". Matching is
+ * against the parsed pricing cards (fuzzy, OCR-tolerant). Rules:
+ * - The door card is never consumed: its price belongs to the door total,
+ *   not to an option.
+ * - Each card is consumed at most once: two options never share one price.
+ * - An option with no matching card keeps its plain text — never guessed.
+ */
+function priceOptions(options: string[], cards: ParsedCard[]): string[] {
+  const pool = cards.filter((c) => c.kind !== "door");
+  const used = new Set<number>();
+  return options.map((opt) => {
+    const idx = pool.findIndex(
+      (c, i) => !used.has(i) && optionMatchesCard(opt, c.label),
+    );
+    if (idx < 0) return opt;
+    used.add(idx);
+    return `${opt} (${money(pool[idx].netPrice)})`;
+  });
 }
 
 export interface DoorProductInfo {
@@ -359,6 +427,6 @@ export function parsePricingText(text: string): PricingParseResult {
       (cards.length > 0 ? doorHeaderLabels[0] : "") ||
       "",
     doorSize: product?.size || "",
-    doorOptions: product?.options || [],
+    doorOptions: product ? priceOptions(product.options, cards) : [],
   };
 }

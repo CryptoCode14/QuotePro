@@ -188,9 +188,43 @@ PRICE FOR INSULATION Multiplier: 1.268
 List Price: 61.00 Net Price: 69.24
 1% iStore Discount Applied`, { door: 1191.3, windows: 69.24, etc: 0 });
 
+// ---- 3. Priced options: each Product-line option carries its card price ----
+{
+  const text = `Product: 10'2" X 8'0" | 524S | COMPLETE DOOR | INTELLICORE | STANDARD WHITE
+524S Multiplier: 1.364
+List Price: 900.00 NetPrice: 1240.50
+1% iStore Discount Applied
+PRICE FOR INTELLICORE UPGRADE Multiplier: 1.364
+List Price: 180.00 NetPrice: 245.52
+1% iStore Discount Applied
+PRICE FOR INSULATED Multiplier: 1.364
+List Price: 206.58 NetPrice: 227.83
+1% iStore Discount Applied`;
+  const r = parsePricingText(text);
+  const want = [
+    "COMPLETE DOOR",
+    "INTELLICORE ($245.52)",
+    "STANDARD WHITE",
+  ];
+  const got = r.doorOptions;
+  const match =
+    got.length === want.length && got.every((g, i) => g === want[i]);
+  if (!match) {
+    failures++;
+    console.log(`FAIL edge priced-options`);
+    console.log(`  expected ${JSON.stringify(want)}`);
+    console.log(`  actual   ${JSON.stringify(got)}`);
+  }
+  // The door card's own price must never leak onto an option.
+  if (got.some((g) => g.includes("1,240.50"))) {
+    failures++;
+    console.log(`FAIL edge priced-options: door price leaked into options`);
+  }
+}
+
 console.log(
   failures === 0
-    ? `PASS — ${fixtureCount} fixtures + 14 edge cases`
+    ? `PASS — ${fixtureCount} fixtures + 15 edge cases`
     : `${failures} FAILURE(S)`,
 );
 process.exit(failures === 0 ? 0 : 1);
