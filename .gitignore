@@ -6,3 +6,4 @@ venv/
 .firebase/
 firebase-debug.log
 dist/
+*.traineddata

@@ -209,6 +209,7 @@ export default function App() {
         return;
       }
       const jobs: FillJob[] = [];
+      const hasDoor = r.cards.some((c) => c.kind === "door");
       if (r.door > 0) jobs.push({ key: "door", value: r.door, conf: "high" });
       if (r.windows > 0)
         jobs.push({ key: "windows", value: r.windows, conf: "high" });
@@ -223,10 +224,18 @@ export default function App() {
       }
       runFillJobs(
         jobs,
-        `SCANNED ${r.cards.length} ITEM${
-          r.cards.length > 1 ? "S" : ""
-        } — MULTIPLIER → 1.00`,
+        // The door card wasn't detected (OCR mangled the model line or it was
+        // cropped out). Never guess — flag it loudly instead of filling a
+        // wrong number.
+        hasDoor
+          ? `SCANNED ${r.cards.length} ITEM${
+              r.cards.length > 1 ? "S" : ""
+            } — MULTIPLIER → 1.00`
+          : `SCANNED ${r.cards.length} ITEM${
+              r.cards.length > 1 ? "S" : ""
+            } — DOOR NOT FOUND, CHECK THE SCREENSHOT`,
       );
+      if (!hasDoor) showToast("DOOR NOT FOUND IN SCAN");
     },
     [runFillJobs, showToast],
   );

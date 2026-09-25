@@ -51,3 +51,14 @@ contract the new OCR intake parser must handle.
 - Multipliers like `1.268` (3 decimals) and `1% iStore Discount Applied` must not
   be misread as prices (prices always have exactly 2 decimals).
 - Product line may wrap across 2 lines; model code is the 2nd pipe-delimited token.
+
+## 2026-09-24 door-miss hardening
+Real-screenshot sweep (35 tesseract OCR outputs) found the door card being
+silently dropped when the model code had OCR-mangled digits (`BD1NU`→`BDINU`,
+`GD1LU`→`GDILU`) or no digits at all (`VSAXU`) — the old has-digit rule
+rejected the header, and the largest-price fallback then promoted a WRONG card
+(FRAMING, once even a WINDOWS card) to door. Fixed: door header is recognized
+by the `Multiplier` tail (no digit requirement; internal spaces tolerated),
+net amounts may wrap to the next line, and the largest-price fallback is
+removed — a missing door stays missing and the UI warns "DOOR NOT FOUND".
+Regression suite: `npm run test:ocr` (35 real fixtures + 12 edge cases).
