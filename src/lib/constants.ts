@@ -5,7 +5,7 @@
 
 export const SUPABASE_URL = "https://cjyibogeeyrylosolmhs.supabase.co";
 export const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNqeWlib2dlZXlyeWxvc29sbWhzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAxOTE4NzIsImV4cCI6MjEwNTc2Nzg3Mn0.4GxEiftAghdZdC-RqP9X73P96su6oiq2IMnZ-yFBMRA";
+  "sb_publishable_UgIwpwiZgbXvx5oCYNl2vQ_9A493EQZ";
 
 export const APPS_SCRIPT_URL =
   "https://script.google.com/macros/s/AKfycbyB7fWAsd8MQatdMw1dVDiYf4JYMpm2IHmTQZ9XrGuL_Gqi9iu8VdCwo3wlqUr1jODV/exec";
