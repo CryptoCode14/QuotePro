@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Eye, EyeOff, LogIn, UserPlus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import brandArtUrl from "../assets/login-brand-art.jpg";
 
 export interface AuthResult {
   ok: boolean;
@@ -68,30 +69,22 @@ export function AuthGate({ open, onLogin, onSignup, onReset }: AuthGateProps) {
       className="fixed inset-0 z-50 overflow-y-auto bg-bg"
     >
       <div className="grid min-h-full md:grid-cols-2">
-        {/* Brand panel — fixed premium dark, always. */}
+        {/* Brand panel — full-bleed brand art, always. */}
         <div
-          className="relative hidden overflow-hidden md:flex md:flex-col md:justify-between md:p-12"
-          style={{
-            background:
-              "radial-gradient(120% 90% at 20% 10%, #2b1a4d 0%, #14101f 45%, #0a0a10 100%)",
-          }}
+          className="relative hidden overflow-hidden bg-[#0a0a0e] md:flex md:flex-col md:justify-between md:p-12"
           aria-hidden="true"
         >
-          {/* Soft accent glows */}
-          <div
-            className="pointer-events-none absolute -left-32 top-1/3 h-96 w-96 rounded-full blur-3xl"
-            style={{ background: "rgba(108, 71, 255, 0.28)" }}
+          <img
+            src={brandArtUrl}
+            alt=""
+            className="pointer-events-none absolute inset-0 h-full w-full object-cover"
           />
+          {/* Legibility gradient: darkens top for the headline, bottom for the footer. */}
           <div
-            className="pointer-events-none absolute -bottom-24 right-0 h-80 w-80 rounded-full blur-3xl"
-            style={{ background: "rgba(0, 113, 227, 0.22)" }}
-          />
-          {/* Faint panel-line motif */}
-          <div
-            className="pointer-events-none absolute inset-0 opacity-[0.07]"
+            className="pointer-events-none absolute inset-0"
             style={{
-              backgroundImage:
-                "repeating-linear-gradient(to bottom, transparent 0 118px, #ffffff 118px 120px)",
+              background:
+                "linear-gradient(180deg, rgba(6,6,10,0.62) 0%, rgba(6,6,10,0.12) 32%, rgba(6,6,10,0.10) 58%, rgba(6,6,10,0.78) 100%)",
             }}
           />
 
