@@ -1,1 +1,15 @@
-{"buildCommand":"npm run build","outputDirectory":"dist","rewrites":[{"destination":"/api/v1/$1","source":"/v1/(.*)"},{"destination":"/index.html","source":"/((?!api/).*)"}],"version":2}
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "destination": "/api/v1/$1",
+      "source": "/v1/(.*)"
+    },
+    {
+      "destination": "/index.html",
+      "source": "/((?!api/).*)"
+    }
+  ],
+  "version": 2
+}
