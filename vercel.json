@@ -7,10 +7,6 @@
       "source": "/v1/(.*)"
     },
     {
-      "destination": "/api/index.js",
-      "source": "/api/(calculator|estimates)(/.*)?"
-    },
-    {
       "destination": "/index.html",
       "source": "/((?!api/).*)"
     }
