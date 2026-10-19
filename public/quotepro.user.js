@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.0.5
+// @version      1.0.6
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -92,6 +92,7 @@
     vars: "qp_vars",
     lastResult: "qp_last_result",
     fieldMap: "qp_field_map",
+    docked: "qp_docked",
   };
 
   /* -------------------------------- utils -------------------------------- */
@@ -278,6 +279,22 @@
       font-size: 11px; padding: 4px 9px; cursor: pointer; margin-left: 8px; }
     .qp-copy:hover { background: #2f353e; }
     .qp-ok { color: #7ee2a8; font-size: 12px; margin-top: 6px; display: none; }
+    .qp-panel { transition: transform .25s ease, opacity .25s ease; }
+    .qp-panel.qp-min { transform: translateX(calc(100% + 32px)); opacity: 0; pointer-events: none; }
+    .qp-dock { position: fixed; z-index: 2147483647; right: 0; top: 36%;
+      width: 46px; padding: 14px 0; background: #16181d; color: #e8eaed;
+      border: 1px solid #2e323a; border-right: 0; border-radius: 12px 0 0 12px;
+      box-shadow: -6px 0 24px rgba(0,0,0,.45); cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      transition: transform .22s ease, background .15s ease; }
+    .qp-dock:hover { background: #20242b; }
+    .qp-dock.qp-hidden { transform: translateX(110%); }
+    .qp-dock .qp-dock-label { writing-mode: vertical-rl; letter-spacing: .2em;
+      font-size: 10px; font-weight: 700; color: #9aa0ab; }
+    .qp-dock .qp-dock-total { font-size: 10px; font-weight: 700; color: #7ee2a8;
+      font-variant-numeric: tabular-nums; max-width: 40px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; }
   `;
 
   function makePanel(title) {
@@ -292,14 +309,46 @@
     panel.style.right = "16px";
     panel.style.bottom = "16px";
     panel.innerHTML =
-      '<div class="qp-head"><b>' + title + '</b><button class="qp-x" title="Close">\u00d7</button></div>' +
+      '<div class="qp-head"><b>' + title + '</b><button class="qp-x" title="Dock to edge">\u2013</button></div>' +
       '<div class="qp-body"></div>';
     shadow.appendChild(style);
     shadow.appendChild(panel);
+
+    // Edge dock: slim tab that lives on the right edge while the panel is
+    // tucked away. Click it to slide the panel back out.
+    const dock = document.createElement("div");
+    dock.className = "qp-dock";
+    dock.title = "QuotePro \u2014 click to expand";
+    const dockLabel = document.createElement("span");
+    dockLabel.className = "qp-dock-label";
+    dockLabel.textContent = "QUOTEPRO";
+    const dockTotal = document.createElement("span");
+    dockTotal.className = "qp-dock-total";
+    dockTotal.style.display = "none";
+    dock.appendChild(dockLabel);
+    dock.appendChild(dockTotal);
+    shadow.appendChild(dock);
     document.documentElement.appendChild(host);
 
+    const setDocked = (docked) => {
+      panel.classList.toggle("qp-min", docked);
+      dock.classList.toggle("qp-hidden", !docked);
+      try { GM_setValue(STORE.docked, docked); } catch (e) { /* noop */ }
+    };
+    const setDockTotal = (text) => {
+      if (text) {
+        dockTotal.textContent = text;
+        dockTotal.style.display = "block";
+      } else {
+        dockTotal.style.display = "none";
+      }
+    };
+    dock.addEventListener("click", () => setDocked(false));
+
     const head = panel.querySelector(".qp-head");
-    head.querySelector(".qp-x").addEventListener("click", () => host.remove());
+    head.querySelector(".qp-x").addEventListener("click", () => setDocked(true));
+    // Start docked; the dock tab is the entry point.
+    setDocked(GM_getValue(STORE.docked, true));
     // Drag by header.
     head.addEventListener("mousedown", (e) => {
       if (e.target.classList.contains("qp-x")) return;
@@ -321,7 +370,7 @@
       document.addEventListener("mousemove", move);
       document.addEventListener("mouseup", up);
     });
-    return { host, body: panel.querySelector(".qp-body") };
+    return { host, body: panel.querySelector(".qp-body"), setDocked, setDockTotal };
   }
 
   function labeledInput(body, label, name, value, guess) {
@@ -489,7 +538,7 @@
   }
 
   function initIStore() {
-    const { body } = makePanel("QuotePro \u2014 Quick Estimate");
+    const { body, setDockTotal } = makePanel("QuotePro \u2014 Quick Estimate");
 
     // API key manager — always visible so the key can be set or changed.
     // (Previously it vanished for good once saved, which looked like a bug.)
@@ -610,7 +659,9 @@
       return Number.isFinite(v) && v >= 0 ? v : 0;
     };
     const updateTotal = () => {
-      totalVal.textContent = "$" + fmt(numVal(doorIn) + numVal(winIn) + numVal(miscIn));
+      const t = "$" + fmt(numVal(doorIn) + numVal(winIn) + numVal(miscIn));
+      totalVal.textContent = t;
+      setDockTotal(t);
     };
     [doorIn, winIn, miscIn].forEach((inp) => inp.addEventListener("input", updateTotal));
     updateTotal();
@@ -778,8 +829,9 @@
   }
 
   function initServiceTitan() {
-    const { body } = makePanel("QuotePro \u2014 Fill ServiceTitan");
+    const { body, setDockTotal } = makePanel("QuotePro \u2014 Fill ServiceTitan");
     const last = getLastResult();
+    if (last) setDockTotal("$" + fmt(last.final_price));
 
     const note = document.createElement("div");
     note.className = "qp-note";
