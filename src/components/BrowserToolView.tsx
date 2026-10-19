@@ -6,6 +6,7 @@ import {
   MousePointerClick,
   Puzzle,
   RefreshCw,
+  Zap,
 } from "lucide-react";
 import { Eyebrow, Section } from "@/components/primitives";
 
@@ -231,6 +232,13 @@ export function BrowserToolView() {
               <strong>A field didn't fill</strong> — click{" "}
               <span className="font-medium">“Re-pick”</span> for that number and
               click the field on the page again.
+            </Bullet>
+            <Bullet icon={<Zap size={15} />}>
+              <strong>Tip:</strong> press{" "}
+              <span className="font-mono text-[12px]">Alt+Q</span> on any iStore
+              or ServiceTitan page to toggle the dock, and{" "}
+              <span className="font-mono text-[12px]">Enter</span> in any panel
+              field to calculate.
             </Bullet>
           </ul>
         </Section>
