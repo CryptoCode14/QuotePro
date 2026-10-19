@@ -95,6 +95,13 @@ export function BrowserToolView() {
               the script sets field values programmatically, which
               paste-blockers can't intercept.
             </Bullet>
+            <Bullet icon={<Copy size={15} />}>
+              <strong>Estimate texts.</strong> The panel builds your estimate
+              title, Summary, and door line-item description from the door on
+              the page — same conventions as your past estimates. Each one
+              copies with a button or fills into a field you pick (and remap).
+              Service/repair jobs get their own short-format track.
+            </Bullet>
             <Bullet icon={<RefreshCw size={15} />}>
               <strong>One install, every machine.</strong> Tampermonkey syncs
               the script through Chrome sync, and updates install automatically
