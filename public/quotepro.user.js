@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.0.4
+// @version      1.0.5
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -53,8 +53,9 @@
 
   /* ------------------------------- CONFIG -------------------------------- */
   const CONFIG = {
-    // Fallback API base if none was saved via the menu command.
-    API_BASE_DEFAULT: "https://quotepro-7s2mex88k-pizza122202-9153s-projects.vercel.app",
+    // Production API. (Old preview deployments sit behind Vercel SSO and
+    // answer 401 before the key is ever checked — do not point this at one.)
+    API_BASE_DEFAULT: "https://grandvalley-quotepro.vercel.app",
 
     // Hosts where each panel activates (host-only: order/estimate IDs in the
     // URL differ per customer, so we match the host, not the full URL).
@@ -99,6 +100,16 @@
 
   const fmt = (n) =>
     Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Short display label for a scraped net-price card: the header before
+  // "Multiplier:", with any price tail stripped.
+  function shortLabel(label) {
+    const m = String(label).match(/^(.*?)\s*Multiplier:/i);
+    let s = (m ? m[1] : String(label)).replace(/\s+/g, " ").trim();
+    s = s.replace(/\s*(List Price|Net Price).*$/i, "").trim();
+    if (s.length > 48) s = s.slice(0, 48) + "\u2026";
+    return s || String(label).slice(0, 48);
+  }
 
   function parseMoney(text) {
     // Matches $1,234.56 / 1234.56 / $45 — first plausible money value in text.
@@ -377,26 +388,61 @@
   }
 
   // Classify scraped {label, amount} items into door/windows/misc.
-  // allowGuess: when true and no clear door item exists, the largest remaining
-  // amount is used as a flagged door guess.
+  // - Summary/total lines are detected and excluded from the buckets (but
+  //   kept on the item with bucket "total" so the panel can show them):
+  //   total-ish words, or an amount equal to the sum of all other lines.
+  // - Explicit door keywords win; otherwise the FIRST remaining item wins,
+  //   because the iStore lists the main product before its options.
+  // allowGuess: when true and no door found at all, the largest remaining
+  // amount is used as a flagged door guess (fallback scan only).
   function classifyItems(items, allowGuess) {
+    const TOTAL_WORDS = /\b(subtotal|grand total|order total|total due|balance due|amount due|total price)\b/i;
+    const included = [];
+    items.forEach((r) => {
+      if (TOTAL_WORDS.test(r.label)) { r.bucket = "total"; }
+      else included.push(r);
+    });
+    if (included.length >= 3) {
+      const totalAll = included.reduce((s, r) => s + r.amount, 0);
+      const biggest = Math.max.apply(null, included.map((x) => x.amount));
+      for (let i = 0; i < included.length; i++) {
+        if (i === 0) continue; // totals render after their line items, never first
+        const r = included[i];
+        if (r.amount >= biggest && Math.abs(r.amount - (totalAll - r.amount)) < 0.015) {
+          r.bucket = "total";
+          included.splice(i, 1);
+          break;
+        }
+      }
+    }
     let door = 0, windows = 0, misc = 0, doorGuess = false;
     const rest = [];
     let doorSet = false;
-    items.forEach((r) => {
-      if (isWindowsLabel(r.label)) { windows += r.amount; return; }
-      if (!doorSet && isDoorLabel(r.label)) { door = r.amount; doorSet = true; return; }
+    included.forEach((r) => {
+      if (isWindowsLabel(r.label)) { r.bucket = "windows"; windows += r.amount; return; }
+      if (!doorSet && isDoorLabel(r.label)) { r.bucket = "door"; door = r.amount; doorSet = true; return; }
       rest.push(r);
     });
     let guessed = null;
-    if (!doorSet && allowGuess && rest.length) {
-      guessed = rest.reduce((a, b) => (b.amount > a.amount ? b : a));
-      door = guessed.amount;
-      doorGuess = true;
+    if (!doorSet && rest.length) {
+      if (allowGuess) {
+        guessed = rest.reduce((a, b) => (b.amount > a.amount ? b : a));
+        guessed.bucket = "door";
+        door = guessed.amount;
+        doorGuess = true;
+      } else {
+        const first = rest.shift();
+        first.bucket = "door";
+        door = first.amount;
+      }
     }
-    rest.forEach((r) => { if (r !== guessed) misc += r.amount; });
+    rest.forEach((r) => {
+      if (r === guessed) return;
+      r.bucket = "misc";
+      misc += r.amount;
+    });
     const r2 = (n) => Math.round(n * 100) / 100;
-    return { door: r2(door), windows: r2(windows), misc: r2(misc), doorGuess, rowCount: items.length };
+    return { door: r2(door), windows: r2(windows), misc: r2(misc), doorGuess, rowCount: items.length, lines: items };
   }
 
   function describeScrape(s) {
@@ -505,6 +551,38 @@
     note.textContent = describeScrape(scraped);
     body.appendChild(note);
 
+    // Itemized net-price lines, exactly as found on the page.
+    const linesBox = document.createElement("div");
+    linesBox.style.cssText = "margin:2px 0 10px;border:1px solid #2e323a;border-radius:8px;overflow:hidden;";
+    body.appendChild(linesBox);
+    const renderLines = (s) => {
+      linesBox.innerHTML = "";
+      (s.lines || []).forEach((ln) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;" +
+          "padding:6px 10px;font-size:12px;border-bottom:1px solid #22262d;" +
+          (ln.bucket === "total" ? "opacity:.55;" : "");
+        const lab = document.createElement("span");
+        lab.style.cssText = "color:#9aa0ab;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;";
+        lab.title = ln.label;
+        lab.textContent = shortLabel(ln.label);
+        const right = document.createElement("span");
+        right.style.cssText = "display:flex;align-items:center;gap:8px;flex-shrink:0;";
+        const amt = document.createElement("span");
+        amt.style.cssText = "font-variant-numeric:tabular-nums;color:#e8eaed;";
+        amt.textContent = "$" + fmt(ln.amount);
+        const tag = document.createElement("span");
+        tag.style.cssText = "font-size:10px;padding:2px 7px;border-radius:20px;background:#24282f;color:#9aa0ab;white-space:nowrap;";
+        tag.textContent = ln.bucket === "total" ? "total \u2014 excluded" : "\u2192 " + ln.bucket;
+        right.appendChild(amt);
+        right.appendChild(tag);
+        row.appendChild(lab);
+        row.appendChild(right);
+        linesBox.appendChild(row);
+      });
+    };
+    renderLines(scraped);
+
     const doorIn = labeledInput(body, "Door", "door", scraped.door || "", scraped.doorGuess);
     const winIn = labeledInput(body, "Windows", "windows", scraped.windows || "", false);
     const miscIn = labeledInput(body, "Misc", "misc", scraped.misc || "", false);
@@ -513,6 +591,29 @@
     const pctIn = labeledInput(body, "Pct %", "pct", vars.pct, false);
     const instIn = labeledInput(body, "Install", "installation", vars.installation, false);
     const fuelIn = labeledInput(body, "Fuel", "fuel", vars.fuel, false);
+
+    // Live summed total: door + windows + misc inputs. This is the dealer
+    // cost total that gets injected into ServiceTitan.
+    const totalRow = document.createElement("div");
+    totalRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;" +
+      "padding:10px 2px 4px;margin-bottom:8px;border-top:1px solid #2e323a;";
+    const totalLab = document.createElement("span");
+    totalLab.style.cssText = "font-size:12px;color:#9aa0ab;";
+    totalLab.textContent = "Total dealer cost \u2192 ServiceTitan";
+    const totalVal = document.createElement("span");
+    totalVal.style.cssText = "font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;color:#7ee2a8;";
+    totalRow.appendChild(totalLab);
+    totalRow.appendChild(totalVal);
+    body.appendChild(totalRow);
+    const numVal = (inp) => {
+      const v = Number(String(inp.value).replace(/[$,\s]/g, ""));
+      return Number.isFinite(v) && v >= 0 ? v : 0;
+    };
+    const updateTotal = () => {
+      totalVal.textContent = "$" + fmt(numVal(doorIn) + numVal(winIn) + numVal(miscIn));
+    };
+    [doorIn, winIn, miscIn].forEach((inp) => inp.addEventListener("input", updateTotal));
+    updateTotal();
 
     const rescrape = document.createElement("button");
     rescrape.className = "qp-btn qp-secondary";
@@ -524,6 +625,8 @@
       winIn.value = s.windows || "";
       miscIn.value = s.misc || "";
       note.textContent = describeScrape(s);
+      renderLines(s);
+      updateTotal();
     });
     body.appendChild(rescrape);
 
