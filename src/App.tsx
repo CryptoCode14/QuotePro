@@ -11,6 +11,7 @@ import { QuoteRail } from "@/components/QuoteRail";
 import { EstimatesView } from "@/components/EstimatesView";
 import { HistoryView, type SavedQuote } from "@/components/HistoryView";
 import { ApiView } from "@/components/ApiView";
+import { BrowserToolView } from "@/components/BrowserToolView";
 import { AuthGate, type AuthResult } from "@/components/AuthGate";
 
 import {
@@ -671,6 +672,7 @@ export default function App() {
       {activeTab === "estimates" && <EstimatesView />}
       {activeTab === "history" && <HistoryView onRestore={onRestoreHistory} />}
       {activeTab === "api" && <ApiView />}
+      {activeTab === "tool" && <BrowserToolView />}
 
       <AuthGate
         open={!user}
