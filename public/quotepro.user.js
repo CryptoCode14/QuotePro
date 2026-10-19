@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.0.6
+// @version      1.0.7
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -279,21 +279,31 @@
       font-size: 11px; padding: 4px 9px; cursor: pointer; margin-left: 8px; }
     .qp-copy:hover { background: #2f353e; }
     .qp-ok { color: #7ee2a8; font-size: 12px; margin-top: 6px; display: none; }
-    .qp-panel { transition: transform .25s ease, opacity .25s ease; }
-    .qp-panel.qp-min { transform: translateX(calc(100% + 32px)); opacity: 0; pointer-events: none; }
-    .qp-dock { position: fixed; z-index: 2147483647; right: 0; top: 36%;
-      width: 46px; padding: 14px 0; background: #16181d; color: #e8eaed;
-      border: 1px solid #2e323a; border-right: 0; border-radius: 12px 0 0 12px;
-      box-shadow: -6px 0 24px rgba(0,0,0,.45); cursor: pointer;
-      display: flex; flex-direction: column; align-items: center; gap: 10px;
+    .qp-panel { transition: transform .3s cubic-bezier(.22,1,.36,1), opacity .25s ease;
+      background: rgba(22,24,29,.96); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+    .qp-panel.qp-min { transform: translateX(calc(-100% - 32px)); opacity: 0; pointer-events: none; }
+    .qp-dock { position: fixed; z-index: 2147483647; left: 0; top: 34%;
+      width: 44px; padding: 14px 0 12px;
+      background: rgba(18,20,25,.78);
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      color: #e8eaed; border: 1px solid rgba(255,255,255,.09); border-left: 0;
+      border-radius: 0 14px 14px 0;
+      box-shadow: 8px 0 28px rgba(0,0,0,.5), inset 1px 0 0 rgba(255,255,255,.05);
+      cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 10px;
       font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-      transition: transform .22s ease, background .15s ease; }
-    .qp-dock:hover { background: #20242b; }
-    .qp-dock.qp-hidden { transform: translateX(110%); }
-    .qp-dock .qp-dock-label { writing-mode: vertical-rl; letter-spacing: .2em;
-      font-size: 10px; font-weight: 700; color: #9aa0ab; }
+      transition: transform .3s cubic-bezier(.22,1,.36,1), background .15s ease, width .18s ease; }
+    .qp-dock:hover { background: rgba(30,34,41,.92); width: 50px; }
+    .qp-dock.qp-hidden { transform: translateX(-115%); }
+    .qp-dock .qp-dock-mark { width: 26px; height: 26px; border-radius: 9px; flex-shrink: 0;
+      background: linear-gradient(135deg, #2f6fed 0%, #7a5cff 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 800; letter-spacing: .03em; color: #fff;
+      box-shadow: 0 2px 12px rgba(80,110,250,.55); }
+    .qp-dock .qp-dock-label { writing-mode: vertical-rl; letter-spacing: .24em;
+      font-size: 9px; font-weight: 700; color: #8b9099; transition: color .15s ease; }
+    .qp-dock:hover .qp-dock-label { color: #d5d9e0; }
     .qp-dock .qp-dock-total { font-size: 10px; font-weight: 700; color: #7ee2a8;
-      font-variant-numeric: tabular-nums; max-width: 40px; overflow: hidden;
+      font-variant-numeric: tabular-nums; max-width: 38px; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
   `;
 
@@ -306,7 +316,7 @@
     style.textContent = PANEL_CSS;
     const panel = document.createElement("div");
     panel.className = "qp-panel";
-    panel.style.right = "16px";
+    panel.style.left = "16px";
     panel.style.bottom = "16px";
     panel.innerHTML =
       '<div class="qp-head"><b>' + title + '</b><button class="qp-x" title="Dock to edge">\u2013</button></div>' +
@@ -319,12 +329,16 @@
     const dock = document.createElement("div");
     dock.className = "qp-dock";
     dock.title = "QuotePro \u2014 click to expand";
+    const dockMark = document.createElement("span");
+    dockMark.className = "qp-dock-mark";
+    dockMark.textContent = "QP";
     const dockLabel = document.createElement("span");
     dockLabel.className = "qp-dock-label";
     dockLabel.textContent = "QUOTEPRO";
     const dockTotal = document.createElement("span");
     dockTotal.className = "qp-dock-total";
     dockTotal.style.display = "none";
+    dock.appendChild(dockMark);
     dock.appendChild(dockLabel);
     dock.appendChild(dockTotal);
     shadow.appendChild(dock);
@@ -828,126 +842,175 @@
     return parts.join(" > ");
   }
 
+  function isStEstimatePage() {
+    return /#\/estimate\//.test(location.hash || "");
+  }
+
+  // The dock lives on every ServiceTitan page (not just estimates) so it
+  // follows you around the app. The fill UI only activates on estimate
+  // pages; everywhere else the panel shows the last result plus a hint.
+  // Re-renders whenever the SPA navigates.
   function initServiceTitan() {
     const { body, setDockTotal } = makePanel("QuotePro \u2014 Fill ServiceTitan");
-    const last = getLastResult();
-    if (last) setDockTotal("$" + fmt(last.final_price));
 
-    const note = document.createElement("div");
-    note.className = "qp-note";
-    if (last) {
-      const when = new Date(last.at).toLocaleTimeString();
-      note.textContent =
-        "Last calculation (" + when + "): dealer $" + fmt(last.dealer_cost_total) +
-        " \u00b7 double $" + fmt(last.double_cost) +
-        " \u00b7 final $" + fmt(last.final_price) + ".";
-    } else {
-      note.textContent = "No calculation saved yet \u2014 run Calculate on the iStore tab first.";
-    }
-    body.appendChild(note);
-    if (!last) return;
+    const render = () => {
+      body.innerHTML = "";
+      const last = getLastResult();
+      if (last) setDockTotal("$" + fmt(last.final_price));
 
-    const status = document.createElement("div");
-    status.className = "qp-note";
-    body.appendChild(status);
+      const note = document.createElement("div");
+      note.className = "qp-note";
+      if (last) {
+        const when = new Date(last.at).toLocaleTimeString();
+        note.textContent =
+          "Last calculation (" + when + "): dealer $" + fmt(last.dealer_cost_total) +
+          " \u00b7 double $" + fmt(last.double_cost) +
+          " \u00b7 final $" + fmt(last.final_price) + ".";
+      } else {
+        note.textContent = "No calculation saved yet \u2014 run Calculate on the iStore tab first.";
+      }
+      body.appendChild(note);
 
-    const doFill = (keys) => {
-      const map = getFieldMap();
-      const missing = [];
-      let filled = 0;
-      keys.forEach((k) => {
-        const sel = map[k.key];
-        const el = sel ? document.querySelector(sel) : null;
-        if (!el) { missing.push(k.label + " (no field picked)"); return; }
-        if (fillField(el, last[k.key])) filled++;
-        else missing.push(k.label + " (set failed)");
-      });
-      status.textContent =
-        "Filled " + filled + " of " + keys.length + "." +
-        (missing.length ? " Missing: " + missing.join(", ") + "."
-                        : " Verify the totals, then save the estimate.");
-    };
+      const onEstimate = isStEstimatePage();
+      if (!onEstimate) {
+        const hint = document.createElement("div");
+        hint.className = "qp-note";
+        hint.textContent = "Open a ServiceTitan estimate and this panel will fill its fields.";
+        body.appendChild(hint);
+      }
+      if (!last) return;
 
-    const fillAll = document.createElement("button");
-    fillAll.className = "qp-btn";
-    fillAll.textContent = "Fill all fields";
-    fillAll.addEventListener("click", () => doFill(ST_RESULT_KEYS));
-    body.appendChild(fillAll);
+      const status = document.createElement("div");
+      status.className = "qp-note";
+      body.appendChild(status);
 
-    const rowsBox = document.createElement("div");
-    body.appendChild(rowsBox);
-
-    const startPick = (k, pickBtn) => {
-      const tip = document.createElement("div");
-      tip.id = "qp-pick-tip";
-      tip.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);" +
-        "z-index:2147483646;background:#16181d;color:#fff;padding:8px 14px;border-radius:8px;" +
-        "font:13px/1.4 sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.4);pointer-events:none;";
-      tip.textContent = 'Click the "' + k.label + '" field on the page (Esc to cancel)';
-      const stop = () => {
-        tip.remove();
-        document.body.style.cursor = "";
-        document.removeEventListener("keydown", onKey, true);
-        document.removeEventListener("click", onClick, true);
-        pickBtn.textContent = getFieldMap()[k.key] ? "Re-pick" : "Pick field";
-        pickBtn.disabled = false;
-      };
-      const onKey = (e) => {
-        if (e.key === "Escape") { e.stopPropagation(); stop(); }
-      };
-      const onClick = (e) => {
-        const t = e.target;
-        // Ignore our own panel (shadow host) and the tip.
-        if (t && (t.id === "qp-host" || (t.closest && (t.closest("#qp-host") || t.closest("#qp-pick-tip"))))) return;
-        e.preventDefault();
-        e.stopPropagation();
-        const sel = buildSelector(t);
-        if (sel) {
-          const map = GM_getValue(STORE.fieldMap, {});
-          map[k.key] = sel;
-          GM_setValue(STORE.fieldMap, map);
-          status.textContent = k.label + " mapped. Click Fill to test it.";
+      const doFill = (keys) => {
+        if (!isStEstimatePage()) {
+          status.textContent = "Open an estimate first \u2014 this page has no estimate fields.";
+          return;
         }
-        stop();
-        renderRows();
+        const map = getFieldMap();
+        const missing = [];
+        let filled = 0;
+        keys.forEach((k) => {
+          const sel = map[k.key];
+          const el = sel ? document.querySelector(sel) : null;
+          if (!el) { missing.push(k.label + " (no field picked)"); return; }
+          if (fillField(el, last[k.key])) filled++;
+          else missing.push(k.label + " (set failed)");
+        });
+        status.textContent =
+          "Filled " + filled + " of " + keys.length + "." +
+          (missing.length ? " Missing: " + missing.join(", ") + "."
+                          : " Verify the totals, then save the estimate.");
       };
-      document.addEventListener("keydown", onKey, true);
-      document.addEventListener("click", onClick, true);
-      document.body.appendChild(tip);
-      document.body.style.cursor = "crosshair";
-      pickBtn.textContent = "Picking\u2026";
-      pickBtn.disabled = true;
+
+      const fillAll = document.createElement("button");
+      fillAll.className = "qp-btn";
+      fillAll.textContent = "Fill all fields";
+      fillAll.addEventListener("click", () => doFill(ST_RESULT_KEYS));
+      body.appendChild(fillAll);
+
+      const rowsBox = document.createElement("div");
+      body.appendChild(rowsBox);
+
+      const startPick = (k, pickBtn) => {
+        const tip = document.createElement("div");
+        tip.id = "qp-pick-tip";
+        tip.style.cssText = "position:fixed;top:12px;left:50%;transform:translateX(-50%);" +
+          "z-index:2147483646;background:#16181d;color:#fff;padding:8px 14px;border-radius:8px;" +
+          "font:13px/1.4 sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.4);pointer-events:none;";
+        tip.textContent = 'Click the "' + k.label + '" field on the page (Esc to cancel)';
+        const stop = () => {
+          tip.remove();
+          document.body.style.cursor = "";
+          document.removeEventListener("keydown", onKey, true);
+          document.removeEventListener("click", onClick, true);
+          pickBtn.textContent = getFieldMap()[k.key] ? "Re-pick" : "Pick field";
+          pickBtn.disabled = false;
+        };
+        const onKey = (e) => {
+          if (e.key === "Escape") { e.stopPropagation(); stop(); }
+          };
+        const onClick = (e) => {
+          const t = e.target;
+          // Ignore our own panel (shadow host) and the tip.
+          if (t && (t.id === "qp-host" || (t.closest && (t.closest("#qp-host") || t.closest("#qp-pick-tip"))))) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const sel = buildSelector(t);
+          if (sel) {
+            const map = GM_getValue(STORE.fieldMap, {});
+            map[k.key] = sel;
+            GM_setValue(STORE.fieldMap, map);
+            status.textContent = k.label + " mapped. Click Fill to test it.";
+          }
+          stop();
+          renderRows();
+        };
+        document.addEventListener("keydown", onKey, true);
+        document.addEventListener("click", onClick, true);
+        document.body.appendChild(tip);
+        document.body.style.cursor = "crosshair";
+        pickBtn.textContent = "Picking\u2026";
+        pickBtn.disabled = true;
+      };
+
+      const renderRows = () => {
+        rowsBox.innerHTML = "";
+        const map = getFieldMap();
+        ST_RESULT_KEYS.forEach((k) => {
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:6px;" +
+            "padding:6px 0;border-bottom:1px dashed #262a31;";
+          const lab = document.createElement("span");
+          lab.style.cssText = "color:#9aa0ab;font-size:12px;";
+          lab.textContent = k.label + " ($" + fmt(last[k.key]) + ")" + (map[k.key] ? "" : " \u2014 not mapped");
+          const btns = document.createElement("span");
+          btns.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
+          const mk = (txt, fn) => {
+            const b = document.createElement("button");
+            b.className = "qp-copy";
+            b.textContent = txt;
+            b.addEventListener("click", fn);
+            btns.appendChild(b);
+            return b;
+          };
+          const pickBtn = mk(map[k.key] ? "Re-pick" : "Pick field", () => startPick(k, pickBtn));
+          mk("Fill", () => doFill([k]));
+          mk("Copy", (e) => copyText(last[k.key], e.target));
+          row.appendChild(lab);
+          row.appendChild(btns);
+          rowsBox.appendChild(row);
+        });
+      };
+      renderRows();
     };
 
-    const renderRows = () => {
-      rowsBox.innerHTML = "";
-      const map = getFieldMap();
-      ST_RESULT_KEYS.forEach((k) => {
-        const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:6px;" +
-          "padding:6px 0;border-bottom:1px dashed #262a31;";
-        const lab = document.createElement("span");
-        lab.style.cssText = "color:#9aa0ab;font-size:12px;";
-        lab.textContent = k.label + " ($" + fmt(last[k.key]) + ")" + (map[k.key] ? "" : " \u2014 not mapped");
-        const btns = document.createElement("span");
-        btns.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
-        const mk = (txt, fn) => {
-          const b = document.createElement("button");
-          b.className = "qp-copy";
-          b.textContent = txt;
-          b.addEventListener("click", fn);
-          btns.appendChild(b);
-          return b;
-        };
-        const pickBtn = mk(map[k.key] ? "Re-pick" : "Pick field", () => startPick(k, pickBtn));
-        mk("Fill", () => doFill([k]));
-        mk("Copy", (e) => copyText(last[k.key], e.target));
-        row.appendChild(lab);
-        row.appendChild(btns);
-        rowsBox.appendChild(row);
-      });
+    render();
+
+    // ServiceTitan navigates without page loads: re-render when the URL
+    // changes via hash, history API, or anything else.
+    let lastHref = location.href;
+    const checkNav = () => {
+      if (location.href !== lastHref) {
+        lastHref = location.href;
+        render();
+      }
     };
-    renderRows();
+    window.addEventListener("hashchange", checkNav);
+    window.addEventListener("popstate", checkNav);
+    ["pushState", "replaceState"].forEach((fn) => {
+      try {
+        const orig = history[fn];
+        history[fn] = function () {
+          const r = orig.apply(this, arguments);
+          checkNav();
+          return r;
+        };
+      } catch (e) { /* noop */ }
+    });
+    setInterval(checkNav, 3000);
   }
 
   /* -------------------------------- router -------------------------------- */
@@ -980,23 +1043,10 @@
     alert("Saved calculation cleared.");
   });
 
-  // ServiceTitan is a single-page app: the estimate view swaps in via hash
-  // routing (e.g. #/estimate/41152822) without a page load, so re-check on
-  // hashchange too.
-  let stPanelShown = false;
-  const maybeInitST = () => {
-    if (stPanelShown) return;
-    if (/#\/estimate\//.test(location.hash)) {
-      stPanelShown = true;
-      initServiceTitan();
-    }
-  };
-
   if (hostMatches(CONFIG.ISTORE_HOSTS)) {
     initIStore();
   } else if (hostMatches(CONFIG.ST_HOSTS)) {
-    maybeInitST();
-    window.addEventListener("hashchange", maybeInitST);
+    initServiceTitan();
   }
   // Otherwise: quiet exit. Tighten by replacing @match */* with explicit hosts.
 })();
