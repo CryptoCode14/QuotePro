@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.0.3
+// @version      1.0.4
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -61,13 +61,10 @@
     ISTORE_HOSTS: ["istorem.clopay.com"],
     ST_HOSTS: ["go.servicetitan.com"],
 
-    // Optional: CSS selector narrowing the iStore cost area (e.g. "table.quote-lines").
-    // Leave "" to scan the whole page.
+    // Optional: CSS selector narrowing the iStore cost area for the fallback
+    // $-scan (e.g. "table.quote-lines"). The Net Price reader scans the whole
+    // page. Leave "" for the default.
     ISTORE_SCOPE_SELECTOR: "",
-
-    // Optional: CSS selector for the iStore's main door line item.
-    // Leave "" and the scraper will guess (largest non-window amount, flagged).
-    ISTORE_DOOR_SELECTOR: "",
 
     // ServiceTitan estimate fields: which QuotePro result number fills which
     // field. TODO: paste real CSS selectors once the estimate page is inspected.
@@ -112,8 +109,20 @@
   }
 
   const compact = (s) => String(s).toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const isWindowsLabel = (label) => WINDOW_KEYWORDS.some((k) => compact(label).includes(k));
-  const isDoorLabel = (label) => DOOR_KEYWORDS.some((k) => compact(label).includes(k));
+  function isWindowsLabel(label) {
+    if (!WINDOW_KEYWORDS.some((k) => compact(label).includes(k))) return false;
+    // Negations ("NO WINDOWS", "WITHOUT WINDOWS", "WINDOWLESS") mean no windows:
+    // the iStore prints "SOLID (NO WINDOWS)" on solid doors.
+    if (/\bNO\s+WINDOWS?\b/i.test(label) ||
+        /\bWITHOUT\s+WINDOWS?\b/i.test(label) ||
+        /WINDOWLESS/i.test(label)) return false;
+    return true;
+  }
+  function isDoorLabel(label) {
+    // "PRICE FOR ..." cards are add-ons/options, never the door itself.
+    if (/^\s*PRICE FOR\b/i.test(label)) return false;
+    return DOOR_KEYWORDS.some((k) => compact(label).includes(k));
+  }
 
   const getApiKey = () => GM_getValue(STORE.key, "");
   const getApiBase = () =>
@@ -337,12 +346,78 @@
   }
 
   /* ------------------------------ iStore side ----------------------------- */
+  // Dealer cost on the iStore is the per-item NET price ("Net Price: 1491.61",
+  // after the iStore discount) — never the list price and never the cart total.
+  // Each priced item lives on its own card; find the largest ancestor that
+  // mentions Net Price exactly once, and read the amount anchored to it.
+  function findNetPriceItems() {
+    const items = [];
+    const seenCards = new Set();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (!/net price/i.test(node.nodeValue || "")) continue;
+      let card = node.parentElement, best = null;
+      for (let i = 0; i < 8 && card && card !== document.body; i++) {
+        const count = ((card.innerText || "").match(/net price/gi) || []).length;
+        if (count === 1) best = card;
+        else if (count > 1) break;
+        card = card.parentElement;
+      }
+      if (!best || seenCards.has(best)) continue;
+      seenCards.add(best);
+      const label = (best.innerText || "").replace(/\s+/g, " ").trim();
+      const m = label.match(/net price:\s*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+\.[0-9]{2})/i);
+      if (!m) continue;
+      const amount = Number(m[1].replace(/,/g, ""));
+      if (!Number.isFinite(amount) || amount <= 0) continue;
+      items.push({ label, amount });
+    }
+    return items;
+  }
+
+  // Classify scraped {label, amount} items into door/windows/misc.
+  // allowGuess: when true and no clear door item exists, the largest remaining
+  // amount is used as a flagged door guess.
+  function classifyItems(items, allowGuess) {
+    let door = 0, windows = 0, misc = 0, doorGuess = false;
+    const rest = [];
+    let doorSet = false;
+    items.forEach((r) => {
+      if (isWindowsLabel(r.label)) { windows += r.amount; return; }
+      if (!doorSet && isDoorLabel(r.label)) { door = r.amount; doorSet = true; return; }
+      rest.push(r);
+    });
+    let guessed = null;
+    if (!doorSet && allowGuess && rest.length) {
+      guessed = rest.reduce((a, b) => (b.amount > a.amount ? b : a));
+      door = guessed.amount;
+      doorGuess = true;
+    }
+    rest.forEach((r) => { if (r !== guessed) misc += r.amount; });
+    const r2 = (n) => Math.round(n * 100) / 100;
+    return { door: r2(door), windows: r2(windows), misc: r2(misc), doorGuess, rowCount: items.length };
+  }
+
+  function describeScrape(s) {
+    if (!s.rowCount) return "No priced lines found on this page \u2014 type the costs in manually.";
+    const what = s.viaNet ? "Net Price line(s)" : "priced lines";
+    return "Read " + s.rowCount + " " + what + " off this page. Verify before calculating" +
+      (s.doorGuess ? " \u2014 door value is a guess (highlighted)." : ".");
+  }
+
   function scrapeIStore() {
+    const netItems = findNetPriceItems();
+    if (netItems.length) {
+      const r = classifyItems(netItems, false);
+      r.viaNet = true;
+      return r;
+    }
+    // Fallback for pages without "Net Price" lines: generic $-amount scan.
+    const rows = [];
     const scope = CONFIG.ISTORE_SCOPE_SELECTOR
       ? document.querySelector(CONFIG.ISTORE_SCOPE_SELECTOR) || document.body
       : document.body;
-    const rows = [];
-    // Walk leaf-ish elements that mention money.
     const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
     const seen = new Set();
     let node;
@@ -350,7 +425,6 @@
       const text = node.nodeValue;
       if (!text || text.indexOf("$") === -1) continue;
       let el = node.parentElement;
-      // Climb to a row-like container (but not the whole body).
       for (let i = 0; i < 4 && el && el !== scope; i++) {
         const t = el.innerText || "";
         if (t.length > 8 && t.length < 400 && /\$/.test(t)) break;
@@ -361,52 +435,11 @@
       const label = (el.innerText || "").replace(/\s+/g, " ").trim();
       const amount = parseMoney(label);
       if (amount === null || amount <= 0) continue;
-      rows.push({ label, amount, el });
+      rows.push({ label, amount });
     }
-
-    let door = null, doorGuess = false;
-    let windows = 0, misc = 0;
-
-    // Explicit door selector wins.
-    if (CONFIG.ISTORE_DOOR_SELECTOR) {
-      const dEl = document.querySelector(CONFIG.ISTORE_DOOR_SELECTOR);
-      if (dEl) {
-        const a = parseMoney(dEl.innerText || dEl.textContent || "");
-        if (a !== null) door = a;
-      }
-    }
-    const consumed = new Set();
-    rows.forEach((r) => {
-      if (isWindowsLabel(r.label)) { windows += r.amount; consumed.add(r.el); return; }
-      if (door === null && isDoorLabel(r.label)) { door = r.amount; consumed.add(r.el); return; }
-    });
-    rows.forEach((r) => {
-      if (consumed.has(r.el)) return;
-      // Skip the row we already assigned as door via selector.
-      misc += r.amount;
-    });
-    // Fallback: no door identified — guess the largest remaining amount.
-    if (door === null) {
-      let best = null;
-      rows.forEach((r) => {
-        if (consumed.has(r.el)) return;
-        if (!best || r.amount > best.amount) best = r;
-      });
-      if (best) {
-        door = best.amount;
-        misc = Math.max(0, Math.round((misc - best.amount) * 100) / 100);
-        doorGuess = true;
-      } else {
-        door = 0;
-      }
-    }
-    return {
-      door: Math.round(door * 100) / 100,
-      windows: Math.round(windows * 100) / 100,
-      misc: Math.round(misc * 100) / 100,
-      doorGuess,
-      rowCount: rows.length,
-    };
+    const r = classifyItems(rows, true);
+    r.viaNet = false;
+    return r;
   }
 
   function initIStore() {
@@ -469,10 +502,7 @@
 
     const note = document.createElement("div");
     note.className = "qp-note";
-    note.textContent = scraped.rowCount
-      ? "Auto-read " + scraped.rowCount + " priced lines off this page. Verify before calculating" +
-        (scraped.doorGuess ? " \u2014 door value is a guess (highlighted)." : ".")
-      : "No priced lines found on this page \u2014 type the costs in manually.";
+    note.textContent = describeScrape(scraped);
     body.appendChild(note);
 
     const doorIn = labeledInput(body, "Door", "door", scraped.door || "", scraped.doorGuess);
@@ -493,10 +523,7 @@
       doorIn.classList.toggle("qp-guess", s.doorGuess);
       winIn.value = s.windows || "";
       miscIn.value = s.misc || "";
-      note.textContent = s.rowCount
-        ? "Auto-read " + s.rowCount + " priced lines. Verify before calculating" +
-          (s.doorGuess ? " \u2014 door value is a guess (highlighted)." : ".")
-        : "No priced lines found \u2014 type the costs in manually.";
+      note.textContent = describeScrape(s);
     });
     body.appendChild(rescrape);
 
