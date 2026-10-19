@@ -133,14 +133,36 @@ export function BrowserToolView() {
             </Step>
             <Step n={3}>
               <span className="inline-flex items-center gap-1.5 font-medium">
-                <KeyRound size={14} className="text-accent" /> Set your API key:
-              </span>{" "}
-              click the Tampermonkey toolbar icon →{" "}
-              <span className="font-medium">“QuotePro: Set API key”</span> and
-              paste a key. Mint one in the{" "}
-              <span className="font-medium">API tab</span> with the{" "}
-              <span className="font-mono text-[12px]">calculate</span> scope
-              checked. Keys are per-user — never share them.
+                <KeyRound size={14} className="text-accent" /> Get your API key
+                from this app:
+              </span>
+              <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-muted">
+                <li>
+                  Open the <span className="font-medium text-ink">API tab</span>{" "}
+                  above and create a new key.
+                </li>
+                <li>
+                  Check the{" "}
+                  <span className="font-mono text-[12px] text-ink">
+                    Calculate
+                  </span>{" "}
+                  scope (that's all this tool needs) and copy the key — it only
+                  shows once.
+                </li>
+                <li>
+                  Paste it into the key field at the top of the QuotePro panel
+                  on the iStore page — or via the Tampermonkey toolbar icon →
+                  hover{" "}
+                  <span className="font-medium text-ink">
+                    “QuotePro Quick Estimate”
+                  </span>{" "}
+                  → <span className="font-medium text-ink">“QuotePro: Set API key”</span>.
+                </li>
+              </ol>
+              <p className="mt-2 text-muted">
+                Keys are per-user and stay on the machine you paste them into —
+                never share them.
+              </p>
             </Step>
             <Step n={4}>
               Repeat steps 1–3 on each machine. Tampermonkey syncs the script
