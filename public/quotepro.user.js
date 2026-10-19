@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.0.1
+// @version      1.0.2
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -11,8 +11,9 @@
 // @grant        GM_registerMenuCommand
 // @connect      quotepro-7s2mex88k-pizza122202-9153s-projects.vercel.app
 // @connect      quotepro-lz9rwghw6-pizza122202-9153s-projects.vercel.app
-// (no @updateURL/@downloadURL: Tampermonkey checks the URL the script was
-// installed from, so updates follow whichever QuotePro domain you used.)
+// @connect      grandvalley-quotepro.vercel.app
+// @updateURL    https://grandvalley-quotepro.vercel.app/quotepro.user.js
+// @downloadURL  https://grandvalley-quotepro.vercel.app/quotepro.user.js
 // ==/UserScript==
 
 /* ============================================================================
