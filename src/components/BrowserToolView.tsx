@@ -80,17 +80,19 @@ export function BrowserToolView() {
         >
           <ul className="space-y-3">
             <Bullet icon={<Download size={15} />}>
-              <strong>On the iStore order review page</strong> a small QuotePro
-              panel appears with door / windows / misc costs pre-filled from
-              the page. Tweak the pricing variables, hit{" "}
+              <strong>On the iStore order review page</strong> a slim QuotePro
+              tab docks to the left edge of the screen — click it to slide the
+              panel out. Door / windows / misc costs come pre-filled from the
+              page. Tweak the pricing variables, hit{" "}
               <strong>Calculate</strong>, and get dealer total, double-cost
               check, final price, and margin — each with a copy button.
             </Bullet>
             <Bullet icon={<MousePointerClick size={15} />}>
-              <strong>On the ServiceTitan estimate page</strong> one click
-              writes those numbers straight into the fields. This bypasses the
-              paste rejection entirely — the script sets field values
-              programmatically, which paste-blockers can't intercept.
+              <strong>On any ServiceTitan page</strong> the same dock follows
+              you. Open an estimate and one click writes those numbers straight
+              into the fields. This bypasses the paste rejection entirely —
+              the script sets field values programmatically, which
+              paste-blockers can't intercept.
             </Bullet>
             <Bullet icon={<RefreshCw size={15} />}>
               <strong>One install, every machine.</strong> Tampermonkey syncs
@@ -177,7 +179,8 @@ export function BrowserToolView() {
             <Step n={1}>
               Open an order review page on{" "}
               <span className="font-mono text-[12px]">istorem.clopay.com</span>.
-              The panel appears bottom-right with costs pre-filled —{" "}
+              The QuotePro tab docks to the left edge — click it to open the
+              panel with costs pre-filled —{" "}
               <strong>verify them</strong> before calculating. A highlighted
               door value is the script's best guess, not a sure thing.
             </Step>
@@ -190,10 +193,12 @@ export function BrowserToolView() {
               buttons, and the numbers are saved for the ServiceTitan tab.
             </Step>
             <Step n={3}>
-              Open the estimate in ServiceTitan. <strong>First time only:</strong>{" "}
-              click <span className="font-medium">“Pick field”</span> next to
-              each number, then click the matching field on the page. The
-              mapping is remembered, so this is a one-time setup per machine.
+              The dock follows you across every ServiceTitan page. Open the
+              estimate and click the dock to open the panel.{" "}
+              <strong>First time only:</strong> click{" "}
+              <span className="font-medium">“Pick field”</span> next to each
+              number, then click the matching field on the page. The mapping
+              is remembered, so this is a one-time setup per machine.
             </Step>
             <Step n={4}>
               Click <strong>“Fill all fields.”</strong> Verify the totals on
@@ -205,9 +210,11 @@ export function BrowserToolView() {
         <Section eyebrow="Troubleshooting">
           <ul className="space-y-3">
             <Bullet icon={<AlertTriangle size={15} />}>
-              <strong>Panel doesn't appear</strong> — make sure Tampermonkey is
-              enabled (toolbar icon, not grayed out) and you're on an iStore
-              order review page or a ServiceTitan estimate page.
+              <strong>Dock doesn't appear</strong> — make sure Tampermonkey is
+              enabled (toolbar icon, not grayed out) and{" "}
+              <strong>reload the tab</strong> (tabs open before the script was
+              installed need one reload). It lives on the iStore order review
+              pages and every ServiceTitan page.
             </Bullet>
             <Bullet icon={<AlertTriangle size={15} />}>
               <strong>“API key rejected (401)”</strong> — re-paste the key via
