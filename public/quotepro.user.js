@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.0.7
+// @version      1.0.8
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -50,6 +50,10 @@
 
 (function () {
   "use strict";
+
+  // Top frame only: both sites embed iframes, and without this every frame
+  // would spawn its own dock.
+  if (window.top !== window.self) return;
 
   /* ------------------------------- CONFIG -------------------------------- */
   const CONFIG = {
@@ -257,6 +261,8 @@
     .qp-row label { flex: 0 0 92px; color: #9aa0ab; font-size: 12px; }
     .qp-row input { flex: 1; min-width: 0; background: #0f1114; border: 1px solid #2e323a;
       color: #e8eaed; border-radius: 8px; padding: 7px 9px; font-size: 13px; }
+    .qp-row input:focus { outline: none; border-color: #2f6fed;
+      box-shadow: 0 0 0 2px rgba(47,111,237,.25); }
     .qp-row input:focus { outline: none; border-color: #4f7ccf; }
     .qp-row input.qp-guess { border-color: #8a6d1f; }
     .qp-note { font-size: 11px; color: #8b9099; margin: 6px 0 10px; }
@@ -358,6 +364,14 @@
       }
     };
     dock.addEventListener("click", () => setDocked(false));
+    // Alt+Q toggles the dock from anywhere on the page (not while typing).
+    document.addEventListener("keydown", (e) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== "q" && e.key !== "Q")) return;
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      e.preventDefault();
+      setDocked(!panel.classList.contains("qp-min"));
+    });
 
     const head = panel.querySelector(".qp-head");
     head.querySelector(".qp-x").addEventListener("click", () => setDocked(true));
@@ -580,6 +594,7 @@
       keyRow.style.marginBottom = "0";
       const keyInp = document.createElement("input");
       keyInp.type = "password";
+      keyInp.dataset.qpkey = "1";
       keyInp.placeholder = "qp_live_\u2026";
       keyInp.autocomplete = "off";
       const keySave = document.createElement("button");
@@ -685,10 +700,13 @@
     rescrape.textContent = "Re-scan page";
     rescrape.addEventListener("click", () => {
       const s = scrapeIStore();
-      doorIn.value = s.door || "";
-      doorIn.classList.toggle("qp-guess", s.doorGuess);
-      winIn.value = s.windows || "";
-      miscIn.value = s.misc || "";
+      // Only overwrite fields the scrape actually found — never wipe typed values.
+      if (s.door || s.doorGuess) {
+        doorIn.value = s.door || "";
+        doorIn.classList.toggle("qp-guess", s.doorGuess);
+      }
+      if (s.windows) winIn.value = s.windows;
+      if (s.misc) miscIn.value = s.misc;
       note.textContent = describeScrape(s);
       renderLines(s);
       updateTotal();
@@ -761,10 +779,21 @@
       );
     });
 
-    // Re-scan once more after late-loading SPA content settles.
-    setTimeout(() => {
-      if (!doorIn.value && !winIn.value && !miscIn.value) rescrape.click();
-    }, 4000);
+    // Enter in any cost/variable field triggers Calculate (not the API key field).
+    body.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      const t = e.target;
+      if (!t || t.tagName !== "INPUT" || t.dataset.qpkey) return;
+      e.preventDefault();
+      if (!calcBtn.disabled) calcBtn.click();
+    });
+
+    // The iStore often renders prices seconds after load: retry the scan
+    // while the cost fields are still empty (never touches typed values).
+    [4000, 10000].forEach((ms) =>
+      setTimeout(() => {
+        if (!doorIn.value && !winIn.value && !miscIn.value) rescrape.click();
+      }, ms));
   }
 
   function renderResults(res, data, okMsg) {
@@ -853,9 +882,13 @@
   function initServiceTitan() {
     const { body, setDockTotal } = makePanel("QuotePro \u2014 Fill ServiceTitan");
 
+    let cancelPick = null;
+    let seenAt = 0;
     const render = () => {
+      if (cancelPick) { const cp = cancelPick; cancelPick = null; cp(); }
       body.innerHTML = "";
       const last = getLastResult();
+      seenAt = last ? last.at : 0;
       if (last) setDockTotal("$" + fmt(last.final_price));
 
       const note = document.createElement("div");
@@ -928,7 +961,9 @@
           document.removeEventListener("click", onClick, true);
           pickBtn.textContent = getFieldMap()[k.key] ? "Re-pick" : "Pick field";
           pickBtn.disabled = false;
+          if (cancelPick) cancelPick = null;
         };
+        cancelPick = stop;
         const onKey = (e) => {
           if (e.key === "Escape") { e.stopPropagation(); stop(); }
           };
@@ -993,7 +1028,11 @@
     // changes via hash, history API, or anything else.
     let lastHref = location.href;
     const checkNav = () => {
-      if (location.href !== lastHref) {
+      // Re-render on SPA navigation — or when a fresh calculation lands from
+      // the iStore tab, so the numbers appear with zero clicks.
+      const l = getLastResult();
+      const at = l ? l.at : 0;
+      if (location.href !== lastHref || at !== seenAt) {
         lastHref = location.href;
         render();
       }
