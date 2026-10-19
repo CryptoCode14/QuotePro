@@ -1,12 +1,13 @@
 import { cn } from "@/lib/utils";
 
-export type TabId = "quote" | "estimates" | "history" | "api";
+export type TabId = "quote" | "estimates" | "history" | "api" | "tool";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "quote", label: "Quote" },
   { id: "estimates", label: "Estimates" },
   { id: "history", label: "History" },
   { id: "api", label: "API" },
+  { id: "tool", label: "Browser Tool" },
 ];
 
 export function TabBar({
