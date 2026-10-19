@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.0.2
+// @version      1.0.3
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -412,16 +412,27 @@
   function initIStore() {
     const { body } = makePanel("QuotePro \u2014 Quick Estimate");
 
-    // Inline API key entry — shown until a key is saved. The Tampermonkey
-    // toolbar menu also has it under QuotePro Quick Estimate > Set API key.
-    if (!getApiKey()) {
-      const keyBox = document.createElement("div");
-      keyBox.style.cssText = "margin-bottom:10px;padding:10px;border:1px dashed #4f7ccf;border-radius:8px;";
+    // API key manager — always visible so the key can be set or changed.
+    // (Previously it vanished for good once saved, which looked like a bug.)
+    // The Tampermonkey toolbar menu also has it under
+    // QuotePro Quick Estimate > Set API key.
+    {
+      const details = document.createElement("details");
+      details.style.cssText = "margin-bottom:10px;";
+      const summary = document.createElement("summary");
+      summary.style.cssText = "cursor:pointer;font-size:12px;color:#9aa0ab;list-style:none;";
+      const refreshSummary = () => {
+        summary.textContent = getApiKey()
+          ? "API key: saved \u2713 (click to change)"
+          : "API key: not set \u2014 click to set it";
+      };
+      refreshSummary();
+      if (!getApiKey()) details.open = true;
       const keyNote = document.createElement("div");
       keyNote.className = "qp-note";
-      keyNote.style.margin = "0 0 8px";
-      keyNote.textContent = "Paste your QuotePro API key to activate. Mint it in the QuotePro app's API tab " +
-        "with the Calculate scope checked. Saved on this machine only.";
+      keyNote.style.margin = "8px 0";
+      keyNote.textContent = "Mint it in the QuotePro app's API tab with the Calculate scope checked. " +
+        "Saved on this machine only, never sent anywhere except the QuotePro API.";
       const keyRow = document.createElement("div");
       keyRow.className = "qp-row";
       keyRow.style.marginBottom = "0";
@@ -432,21 +443,25 @@
       const keySave = document.createElement("button");
       keySave.className = "qp-copy";
       keySave.textContent = "Save";
-      keySave.addEventListener("click", () => {
+      const doSave = () => {
         const v = keyInp.value.trim();
         if (!v) return;
         GM_setValue(STORE.key, v);
-        keyBox.remove();
+        keyInp.value = "";
+        details.open = false;
+        refreshSummary();
         hideError(body);
-      });
+      };
+      keySave.addEventListener("click", doSave);
       keyInp.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") keySave.click();
+        if (e.key === "Enter") doSave();
       });
       keyRow.appendChild(keyInp);
       keyRow.appendChild(keySave);
-      keyBox.appendChild(keyNote);
-      keyBox.appendChild(keyRow);
-      body.appendChild(keyBox);
+      details.appendChild(summary);
+      details.appendChild(keyNote);
+      details.appendChild(keyRow);
+      body.appendChild(details);
     }
 
     const vars = getVars();
