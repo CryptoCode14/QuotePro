@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.0.8
+// @version      1.1.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -206,6 +206,47 @@
     return true;
   }
 
+  // Text-field fill for estimate title / summary / door description. ST's
+  // line-item description editor only registers real keystrokes, so this
+  // tries (1) the native value setter + events, then (2) execCommand
+  // insertText as real keystrokes for contenteditable popups. Returns whether
+  // the value stuck — Copy is always the fallback.
+  function fillTextField(el, text) {
+    if (!el) return false;
+    const str = String(text == null ? "" : text);
+    try { el.focus({ preventScroll: true }); } catch (e) { try { el.focus(); } catch (e2) {} }
+    const tag = el.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") {
+      let setter = null;
+      try {
+        const proto = tag === "INPUT" ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        setter = desc && desc.set;
+      } catch (e) { /* fall through */ }
+      if (setter) setter.call(el, str);
+      else el.value = str;
+      el.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+      try { const tr = el._valueTracker; if (tr) tr.setValue(""); } catch (e) { /* noop */ }
+      el.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+      try { el.blur(); } catch (e) { /* noop */ }
+      return el.value === str;
+    }
+    // contenteditable (ST's inline description popup)
+    try {
+      const sel = window.getSelection();
+      sel.selectAllChildren(el);
+    } catch (e) { /* noop */ }
+    let ok = false;
+    try { ok = document.execCommand("insertText", false, str); } catch (e) { ok = false; }
+    if (!ok) {
+      try { el.textContent = str; ok = true; } catch (e) { /* noop */ }
+    }
+    el.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
+    const cur = (el.innerText != null ? el.innerText : el.textContent) || "";
+    return cur.replace(/\s+$/, "") === str.replace(/\s+$/, "") || ok;
+  }
+
   /* ------------------------------ API client ------------------------------ */
   function apiCalculate(body, onOk, onErr) {
     const key = getApiKey();
@@ -242,6 +283,154 @@
       onerror: () => onErr("Network error reaching the QuotePro API. Check the API URL / @connect host."),
       ontimeout: () => onErr("QuotePro API timed out."),
     });
+  }
+
+  /* ------------------------- estimate text engine ------------------------- */
+  // Builds Weston's estimate title / summary / door-description texts from a
+  // door profile extracted off the iStore page. Conventions encoded from his
+  // ServiceTitan style guide:
+  // - NEVER an em dash anywhere; sizes ALWAYS width x height
+  // - summary uses x-sizes ("16x8"); door-desc line 1 uses feet/inch marks
+  //   when inches are present ("10'2\"x8'"), x-sizes when whole-foot
+  // - the Summary NEVER contains a price breakdown; never leave it blank
+
+  const WINDOWS_VARIANTS = [
+    "Solid, No Windows",
+    "Solid No Windows",
+    "No Windows",
+    "Windows Top Section",
+    "Insulated Windows, 24x12",
+    "Insulated Windows SQ24 Design",
+  ];
+
+  const SERIES_MAP = {
+    "9133": "Classic Steel",
+    "T50L": "T50L",
+    "4300": "4300",
+  };
+
+  const CLOSERS = [
+    "No Opener",
+    "Door Removal",
+    "No Installation",
+    "NO OPENERS, Reconnect to existing Openers",
+  ];
+
+  const CLOPAY_COLORS = [
+    "Standard White", "Commercial White", "Almond", "Desert Tan", "Sandtone",
+    "Commercial Beige", "Commercial Tan", "Bronze", "Chocolate", "Mocha Brown",
+    "Charcoal", "Black", "Hunter Green", "Gray", "Walnut Finish", "Dark Finish",
+    "Medium Finish", "Cherry Finish", "Slate Finish",
+  ];
+
+  const noEmDash = (s) =>
+    String(s == null ? "" : s).replace(/\u2014/g, "-").replace(/\u2013/g, "-");
+
+  // "16' 0\" x 8' 0\"" -> {wFt:16,wIn:0,hFt:8,hIn:0}; null when unparseable.
+  function parseSizeStr(s) {
+    const m = String(s || "").match(/(\d+)\s*'\s*(\d*)\s*"?\s*x\s*(\d+)\s*'\s*(\d*)\s*"?/i);
+    if (!m) return null;
+    return { wFt: +m[1], wIn: +(m[2] || 0), hFt: +m[3], hIn: +(m[4] || 0) };
+  }
+  function fmtXSize(sz) {
+    if (!sz) return "";
+    const w = sz.wIn ? sz.wFt + "'" + sz.wIn + '"' : "" + sz.wFt;
+    const h = sz.hIn ? sz.hFt + "'" + sz.hIn + '"' : "" + sz.hFt;
+    return w + "x" + h;
+  }
+  function fmtFeetSize(sz) {
+    if (!sz) return "";
+    const bit = (f, i) => f + "'" + (i ? i + '"' : "");
+    return bit(sz.wFt, sz.wIn) + "x" + bit(sz.hFt, sz.hIn);
+  }
+
+  function mapWindowsVariant(seg) {
+    const s = String(seg || "").trim();
+    if (!s) return "";
+    if (/no\s*windows|without\s*windows|windowless/i.test(s)) {
+      return /solid/i.test(s) ? "Solid, No Windows" : "No Windows";
+    }
+    if (/top\s*section/i.test(s)) return "Windows Top Section";
+    const hit = WINDOWS_VARIANTS.find((v) => v.toLowerCase() === s.toLowerCase());
+    return hit || s;
+  }
+
+  // Pull the door profile off the iStore Pricing Details modal. The modal
+  // header carries a pipe-separated "Product:" line, e.g.
+  // "Product: 16' 0\" x 8' 0\" | 4300 | COMPLETE DOOR | SOLID (NO WINDOWS) | ...".
+  function parseDoorProfile() {
+    const profile = {
+      size: null, sizeRaw: "", model: "", series: "",
+      color: "", windows: "", insulation: "", track: "", radius: "",
+    };
+    try {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let prodText = "", node;
+      while ((node = walker.nextNode())) {
+        if (/Product\s*:/i.test(node.nodeValue || "")) {
+          const host = node.parentElement;
+          const t = host ? host.textContent : node.nodeValue;
+          if (/\|/.test(t)) { prodText = t; break; }
+        }
+      }
+      const m = prodText.match(/Product\s*:\s*([^|]+)\|(.+)/i);
+      if (!m) return profile;
+      const segs = [m[1]].concat(m[2].split("|"))
+        .map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+      profile.size = parseSizeStr(segs[0] || "");
+      profile.sizeRaw = segs[0] || "";
+      profile.model = segs[1] || "";
+      const rest = segs.slice(2).join(" | ");
+      for (const c of CLOPAY_COLORS) {
+        if (new RegExp(c.replace(/[()]/g, ""), "i").test(rest)) { profile.color = c; break; }
+      }
+      profile.color = profile.color
+        .replace(/^(Standard|Commercial)\s+/i, "").replace(/\s*\(Trinar\)\s*/i, "").trim();
+      profile.windows = mapWindowsVariant(segs.find((s) => /window/i.test(s)) || "");
+      const iseg = segs.find((s) => /insulat|r-value|polystyrene|polyurethane|intellicore/i.test(s)) || "";
+      if (iseg) profile.insulation = iseg;
+      const tseg = segs.find((s) => /track/i.test(s)) || "";
+      if (tseg) profile.track = tseg;
+      const rseg = segs.find((s) => /radius/i.test(s)) || "";
+      if (rseg) profile.radius = rseg;
+    } catch (e) { /* best effort; every field stays editable */ }
+    profile.series = SERIES_MAP[profile.model] || profile.model;
+    return profile;
+  }
+
+  // profile: {jobType, series, model, size, color, windows, insulation, track,
+  //           radius, closer, titleOption, openerRows[], serviceTitle, serviceSummary}
+  // returns {title, summary, doorDescs[]}
+  function genEstimateTexts(p) {
+    const out = { title: "", summary: "", doorDescs: [] };
+    const sizeX = fmtXSize(p.size);
+    if (p.jobType === "service") {
+      out.title = noEmDash(p.serviceTitle || "");
+      out.summary = noEmDash(p.serviceSummary || "");
+      return out;
+    }
+    let title = ("Clopay " + [p.series, sizeX].filter(Boolean).join(" ") + " Door")
+      .replace(/\s+/g, " ").trim();
+    if (p.titleOption) title += " (" + p.titleOption.trim() + ")";
+    out.title = noEmDash(title);
+
+    const head = [p.model, sizeX].filter(Boolean).join(" ");
+    const tail = [p.color, p.windows, p.track, p.radius].filter(Boolean).join(", ");
+    const rows = [tail ? head + ", " + tail : head];
+    (p.openerRows || []).forEach((r) => { const t = r.trim(); if (t) rows.push(t); });
+    rows.push(p.closer || "No Opener");
+    out.summary = noEmDash(rows.join("\n"));
+
+    const sz1 = (p.size && (p.size.wIn || p.size.hIn)) ? fmtFeetSize(p.size) : sizeX;
+    const lines = [
+      ["Clopay", p.model, sz1, "Garage Door"].filter(Boolean).join(" "),
+      p.color ? "Color: " + p.color : "",
+      p.insulation || "",
+      [p.track, p.radius].filter(Boolean).join(", "),
+      p.windows || "",
+    ].filter((l) => l.trim() !== "");
+    out.doorDescs = [noEmDash(lines.join("\n"))];
+    return out;
   }
 
   /* ------------------------------- panel UI ------------------------------- */
@@ -565,6 +754,240 @@
     return r;
   }
 
+  /* ---------------------- estimate texts panel (iStore) --------------------- */
+  // Door profile fields + generated title / summary / door-description.
+  // Everything is editable; regeneration never clobbers a hand-edited field
+  // (a Regenerate button forces it). Returns { getTexts } for the ST tab.
+  function initEstimateTexts(body) {
+    const prof = parseDoorProfile();
+
+    const sec = document.createElement("div");
+    sec.style.cssText = "margin:12px 0 4px;border-top:1px solid #2e323a;padding-top:10px;";
+    const hrow = document.createElement("div");
+    hrow.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;";
+    const h = document.createElement("div");
+    h.style.cssText = "font-size:12px;font-weight:700;color:#9aa0ab;letter-spacing:.06em;";
+    h.textContent = "ESTIMATE TEXTS";
+    const regenBtn = document.createElement("button");
+    regenBtn.className = "qp-copy";
+    regenBtn.textContent = "Regenerate";
+    hrow.appendChild(h);
+    hrow.appendChild(regenBtn);
+    sec.appendChild(hrow);
+    body.appendChild(sec);
+
+    let jobType = "install";
+    const jtRow = document.createElement("div");
+    jtRow.style.cssText = "display:flex;gap:6px;margin-bottom:8px;";
+    const jtBtns = {};
+    const installBox = document.createElement("div");
+    const serviceBox = document.createElement("div");
+    const paintJt = () => {
+      ["install", "service"].forEach((jt) => {
+        const on = jt === jobType;
+        jtBtns[jt].style.background = on ? "#2f6fed" : "";
+        jtBtns[jt].style.color = on ? "#fff" : "";
+      });
+      installBox.style.display = jobType === "install" ? "" : "none";
+      serviceBox.style.display = jobType === "service" ? "" : "none";
+    };
+    ["install", "service"].forEach((jt) => {
+      const b = document.createElement("button");
+      b.className = "qp-copy";
+      b.textContent = jt === "install" ? "Install" : "Service / repair";
+      b.style.cssText = "flex:1;padding:7px 0;";
+      b.addEventListener("click", () => { jobType = jt; paintJt(); regen(); });
+      jtRow.appendChild(b);
+      jtBtns[jt] = b;
+    });
+    sec.appendChild(jtRow);
+    sec.appendChild(installBox);
+    sec.appendChild(serviceBox);
+
+    const mkField = (parent, label, initial) => {
+      const row = document.createElement("div");
+      row.className = "qp-row";
+      const lab = document.createElement("label");
+      lab.textContent = label;
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.value = initial || "";
+      row.appendChild(lab);
+      row.appendChild(inp);
+      parent.appendChild(row);
+      return inp;
+    };
+    const mkArea = (parent, label, initial, rows) => {
+      const lab = document.createElement("div");
+      lab.style.cssText = "color:#9aa0ab;font-size:12px;margin:6px 0 4px;";
+      lab.textContent = label;
+      const ta = document.createElement("textarea");
+      ta.value = initial || "";
+      ta.rows = rows || 2;
+      ta.style.cssText = "width:100%;box-sizing:border-box;background:#0f1114;border:1px solid #2e323a;" +
+        "color:#e8eaed;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;resize:vertical;";
+      parent.appendChild(lab);
+      parent.appendChild(ta);
+      return ta;
+    };
+
+    const seriesIn = mkField(installBox, "Series", prof.series);
+    const modelIn = mkField(installBox, "Model", prof.model);
+    const sizeIn = mkField(installBox, "Size", prof.sizeRaw);
+    const colorIn = mkField(installBox, "Color", prof.color);
+    const winRow = document.createElement("div");
+    winRow.className = "qp-row";
+    const winLab = document.createElement("label");
+    winLab.textContent = "Windows";
+    const winIn = document.createElement("input");
+    winIn.type = "text";
+    winIn.value = prof.windows;
+    winIn.setAttribute("list", "qp-winlist");
+    const dl = document.createElement("datalist");
+    dl.id = "qp-winlist";
+    WINDOWS_VARIANTS.forEach((v) => {
+      const o = document.createElement("option");
+      o.value = v;
+      dl.appendChild(o);
+    });
+    winRow.appendChild(winLab);
+    winRow.appendChild(winIn);
+    winRow.appendChild(dl);
+    installBox.appendChild(winRow);
+    const insulIn = mkField(installBox, "Insulation", prof.insulation);
+    const trackIn = mkField(installBox, "Track", prof.track);
+    const radiusIn = mkField(installBox, "Radius", prof.radius);
+    const closerRow = document.createElement("div");
+    closerRow.className = "qp-row";
+    const closerLab = document.createElement("label");
+    closerLab.textContent = "Closer";
+    const closerSel = document.createElement("select");
+    closerSel.style.cssText = "flex:1;min-width:0;background:#0f1114;border:1px solid #2e323a;" +
+      "color:#e8eaed;border-radius:8px;padding:7px 9px;font-size:13px;";
+    CLOSERS.forEach((c) => {
+      const o = document.createElement("option");
+      o.value = c;
+      o.textContent = c;
+      closerSel.appendChild(o);
+    });
+    closerRow.appendChild(closerLab);
+    closerRow.appendChild(closerSel);
+    installBox.appendChild(closerRow);
+    const titleOptIn = mkField(installBox, "Title option", "");
+    titleOptIn.placeholder = "e.g. R-12.9 Option";
+    const openerTa = mkArea(installBox, "Opener rows (one per line)", "", 2);
+
+    const svcTitleIn = mkField(serviceBox, "Title", "");
+    const svcSummaryTa = mkArea(serviceBox, "Summary", "", 3);
+
+    const genOut = (label, area, rows) => {
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "margin:8px 0;";
+      const top = document.createElement("div");
+      top.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;";
+      const lab = document.createElement("span");
+      lab.style.cssText = "color:#9aa0ab;font-size:12px;";
+      lab.textContent = label;
+      const cp = document.createElement("button");
+      cp.className = "qp-copy";
+      cp.textContent = "Copy";
+      const ta = document.createElement(area ? "textarea" : "input");
+      if (!area) ta.type = "text";
+      else ta.rows = rows || 3;
+      ta.style.cssText = "width:100%;box-sizing:border-box;background:#0f1114;border:1px solid #2e323a;" +
+        "color:#e8eaed;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;" +
+        (area ? "resize:vertical;" : "");
+      cp.addEventListener("click", () => copyText(ta.value, cp));
+      top.appendChild(lab);
+      top.appendChild(cp);
+      wrap.appendChild(top);
+      wrap.appendChild(ta);
+      sec.appendChild(wrap);
+      return ta;
+    };
+    const titleOut = genOut("Estimate title", false);
+    const summaryOut = genOut("Estimate description", true, 3);
+    const doorOut = genOut("Door description", true, 5);
+
+    const readProfile = () => ({
+      jobType,
+      series: seriesIn.value.trim(),
+      model: modelIn.value.trim(),
+      size: parseSizeStr(sizeIn.value) || prof.size,
+      color: colorIn.value.trim(),
+      windows: winIn.value.trim(),
+      insulation: insulIn.value.trim(),
+      track: trackIn.value.trim(),
+      radius: radiusIn.value.trim(),
+      closer: closerSel.value,
+      titleOption: titleOptIn.value.trim(),
+      openerRows: openerTa.value.split("\n"),
+      serviceTitle: svcTitleIn.value.trim(),
+      serviceSummary: svcSummaryTa.value.trim(),
+    });
+
+    const edited = { title: false, summary: false, door: false };
+    titleOut.addEventListener("input", () => { edited.title = true; });
+    summaryOut.addEventListener("input", () => { edited.summary = true; });
+    doorOut.addEventListener("input", () => { edited.door = true; });
+
+    const regen = (force) => {
+      const g = genEstimateTexts(readProfile());
+      if (force || !edited.title) titleOut.value = g.title;
+      if (force || !edited.summary) summaryOut.value = g.summary;
+      if (force || !edited.door) doorOut.value = g.doorDescs[0] || "";
+      if (force) { edited.title = edited.summary = edited.door = false; }
+    };
+    regenBtn.addEventListener("click", () => regen(true));
+
+    [seriesIn, modelIn, sizeIn, colorIn, winIn, insulIn, trackIn, radiusIn,
+     titleOptIn, openerTa, svcTitleIn, svcSummaryTa].forEach((inp) =>
+      inp.addEventListener("input", () => regen(false)));
+    closerSel.addEventListener("change", () => regen(false));
+
+    const getTexts = () => {
+      const p = readProfile();
+      return {
+        jobType: p.jobType,
+        title: titleOut.value,
+        summary: summaryOut.value,
+        doorDescs: doorOut.value ? [doorOut.value] : [],
+        profile: {
+          series: p.series, model: p.model,
+          size: fmtXSize(p.size), color: p.color,
+        },
+      };
+    };
+
+    paintJt();
+    regen(false);
+
+    // Save texts without calculating (service/repair jobs have no iStore costs).
+    const saveRow = document.createElement("div");
+    saveRow.style.cssText = "margin-top:8px;";
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "qp-btn qp-secondary";
+    saveBtn.textContent = "Save texts for ServiceTitan";
+    const savedNote = document.createElement("span");
+    savedNote.style.cssText = "color:#7ee2a8;font-size:12px;margin-left:8px;display:none;";
+    savedNote.textContent = "Saved \u2713";
+    saveBtn.addEventListener("click", () => {
+      const prev = getLastResult() || {};
+      const merged = {};
+      Object.keys(prev).forEach((k) => { merged[k] = prev[k]; });
+      merged.at = Date.now();
+      merged.texts = getTexts();
+      GM_setValue(STORE.lastResult, merged);
+      savedNote.style.display = "inline";
+      setTimeout(() => { savedNote.style.display = "none"; }, 2000);
+    });
+    saveRow.appendChild(saveBtn);
+    saveRow.appendChild(savedNote);
+    sec.appendChild(saveRow);
+
+    return { getTexts };
+  }
+
   function initIStore() {
     const { body, setDockTotal } = makePanel("QuotePro \u2014 Quick Estimate");
 
@@ -695,6 +1118,10 @@
     [doorIn, winIn, miscIn].forEach((inp) => inp.addEventListener("input", updateTotal));
     updateTotal();
 
+    // Estimate texts (title / summary / door description), generated from the
+    // door profile. Saved alongside the calculation for the ST tab.
+    const estTexts = initEstimateTexts(body);
+
     const rescrape = document.createElement("button");
     rescrape.className = "qp-btn qp-secondary";
     rescrape.textContent = "Re-scan page";
@@ -768,6 +1195,7 @@
             final_price: data.final_price,
             margin: data.margin,
             at: Date.now(),
+            texts: estTexts.getTexts(),
           });
           renderResults(res, data, okMsg);
         },
@@ -982,6 +1410,7 @@
           }
           stop();
           renderRows();
+          renderTextRows();
         };
         document.addEventListener("keydown", onKey, true);
         document.addEventListener("click", onClick, true);
@@ -1019,7 +1448,63 @@
           rowsBox.appendChild(row);
         });
       };
+
+      // ---- estimate texts: title -> Name, summary -> Summary, door desc ->
+      // the door line's description editor. Same pick / fill / copy / re-pick
+      // UX as the numbers; mappings are stored per key and remappable.
+      const renderTextRows = () => {
+        const texts = last.texts || null;
+        if (!texts) return;
+        const tkeys = [
+          { key: "est_title", label: "Estimate title", text: texts.title },
+          { key: "est_summary", label: "Estimate description", text: texts.summary },
+        ];
+        (texts.doorDescs || []).forEach((d, i) => {
+          tkeys.push({
+            key: "door_desc",
+            label: "Door description" + (texts.doorDescs.length > 1 ? " " + (i + 1) : ""),
+            text: d,
+          });
+        });
+        const doFillText = (label, tkey, text) => {
+          const map = getFieldMap();
+          const sel = map[tkey];
+          const el = sel ? document.querySelector(sel) : null;
+          if (!el) { status.textContent = label + ": pick a field first (Pick field)."; return; }
+          if (fillTextField(el, text)) status.textContent = label + " filled \u2014 verify it registered.";
+          else status.textContent = label + ": fill may not have registered \u2014 use Copy.";
+        };
+        tkeys.forEach((tk) => {
+          if (!tk.text) return;
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:6px;" +
+            "padding:6px 0;border-bottom:1px dashed #262a31;";
+          const lab = document.createElement("span");
+          lab.style.cssText = "color:#9aa0ab;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px;";
+          lab.textContent = tk.label + ": " + tk.text.replace(/\n/g, " / ");
+          lab.title = tk.text;
+          const map = getFieldMap();
+          const btns = document.createElement("span");
+          btns.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
+          const mk = (txt, fn) => {
+            const b = document.createElement("button");
+            b.className = "qp-copy";
+            b.textContent = txt;
+            b.addEventListener("click", fn);
+            btns.appendChild(b);
+            return b;
+          };
+          const tpick = mk(map[tk.key] ? "Re-pick" : "Pick field",
+            () => startPick({ key: tk.key, label: tk.label }, tpick));
+          mk("Fill", () => doFillText(tk.label, tk.key, tk.text));
+          mk("Copy", (e) => copyText(tk.text, e.target));
+          row.appendChild(lab);
+          row.appendChild(btns);
+          rowsBox.appendChild(row);
+        });
+      };
       renderRows();
+      renderTextRows();
     };
 
     render();
