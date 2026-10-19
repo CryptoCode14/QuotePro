@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.0.0
+// @version      1.0.1
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -184,7 +184,8 @@
   function apiCalculate(body, onOk, onErr) {
     const key = getApiKey();
     if (!key) {
-      onErr("No API key set. Tampermonkey menu -> 'QuotePro: Set API key'.");
+      onErr("No API key set yet \u2014 paste it in the key field at the top of this panel, " +
+        "or via the Tampermonkey toolbar menu under QuotePro Quick Estimate \u2192 'QuotePro: Set API key'.");
       return;
     }
     GM_xmlhttpRequest({
@@ -409,6 +410,44 @@
 
   function initIStore() {
     const { body } = makePanel("QuotePro \u2014 Quick Estimate");
+
+    // Inline API key entry — shown until a key is saved. The Tampermonkey
+    // toolbar menu also has it under QuotePro Quick Estimate > Set API key.
+    if (!getApiKey()) {
+      const keyBox = document.createElement("div");
+      keyBox.style.cssText = "margin-bottom:10px;padding:10px;border:1px dashed #4f7ccf;border-radius:8px;";
+      const keyNote = document.createElement("div");
+      keyNote.className = "qp-note";
+      keyNote.style.margin = "0 0 8px";
+      keyNote.textContent = "Paste your QuotePro API key to activate. Mint it in the QuotePro app's API tab " +
+        "with the Calculate scope checked. Saved on this machine only.";
+      const keyRow = document.createElement("div");
+      keyRow.className = "qp-row";
+      keyRow.style.marginBottom = "0";
+      const keyInp = document.createElement("input");
+      keyInp.type = "password";
+      keyInp.placeholder = "qp_live_\u2026";
+      keyInp.autocomplete = "off";
+      const keySave = document.createElement("button");
+      keySave.className = "qp-copy";
+      keySave.textContent = "Save";
+      keySave.addEventListener("click", () => {
+        const v = keyInp.value.trim();
+        if (!v) return;
+        GM_setValue(STORE.key, v);
+        keyBox.remove();
+        hideError(body);
+      });
+      keyInp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") keySave.click();
+      });
+      keyRow.appendChild(keyInp);
+      keyRow.appendChild(keySave);
+      keyBox.appendChild(keyNote);
+      keyBox.appendChild(keyRow);
+      body.appendChild(keyBox);
+    }
+
     const vars = getVars();
     const scraped = scrapeIStore();
 
