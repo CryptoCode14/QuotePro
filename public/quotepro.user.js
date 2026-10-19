@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.1.1
+// @version      1.1.2
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -359,6 +359,10 @@
   const noEmDash = (s) =>
     String(s == null ? "" : s).replace(/\u2014/g, "-").replace(/\u2013/g, "-");
 
+  // "12\" RADIUS" -> "12\" Radius" for prefilled estimate fields.
+  const toTitleCase = (s) =>
+    String(s || "").toLowerCase().replace(/\b([a-z])/g, (m, c) => c.toUpperCase());
+
   // "16' 0\" x 8' 0\"" -> {wFt:16,wIn:0,hFt:8,hIn:0}; null when unparseable.
   function parseSizeStr(s) {
     const m = String(s || "").match(/(\d+)\s*'\s*(\d*)\s*"?\s*x\s*(\d+)\s*'\s*(\d*)\s*"?/i);
@@ -421,11 +425,11 @@
         .replace(/^(Standard|Commercial)\s+/i, "").replace(/\s*\(Trinar\)\s*/i, "").trim();
       profile.windows = mapWindowsVariant(segs.find((s) => /window/i.test(s)) || "");
       const iseg = segs.find((s) => /insulat|r-value|polystyrene|polyurethane|intellicore/i.test(s)) || "";
-      if (iseg) profile.insulation = iseg;
+      if (iseg) profile.insulation = toTitleCase(iseg);
       const tseg = segs.find((s) => /track/i.test(s)) || "";
-      if (tseg) profile.track = tseg;
+      if (tseg) profile.track = toTitleCase(tseg);
       const rseg = segs.find((s) => /radius/i.test(s)) || "";
-      if (rseg) profile.radius = rseg;
+      if (rseg) profile.radius = toTitleCase(rseg);
     } catch (e) { /* best effort; every field stays editable */ }
     profile.series = SERIES_MAP[profile.model] || profile.model;
     return profile;
@@ -812,14 +816,14 @@
   // Everything is editable; regeneration never clobbers a hand-edited field
   // (a Regenerate button forces it). Returns { getTexts } for the ST tab.
   function initEstimateTexts(body) {
-    const prof = parseDoorProfile();
+    let prof = parseDoorProfile();
 
     const sec = document.createElement("div");
-    sec.style.cssText = "margin:12px 0 4px;border-top:1px solid #2e323a;padding-top:10px;";
+    sec.style.cssText = "margin:14px 0 4px;border-top:1px solid #2e323a;padding-top:12px;";
     const hrow = document.createElement("div");
-    hrow.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;";
+    hrow.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;";
     const h = document.createElement("div");
-    h.style.cssText = "font-size:12px;font-weight:700;color:#9aa0ab;letter-spacing:.06em;";
+    h.style.cssText = "font-size:11px;font-weight:800;color:#e8eaed;letter-spacing:.14em;";
     h.textContent = "ESTIMATE TEXTS";
     const regenBtn = document.createElement("button");
     regenBtn.className = "qp-copy";
@@ -830,30 +834,39 @@
     body.appendChild(sec);
 
     let jobType = "install";
+    // Segmented control for job type.
     const jtRow = document.createElement("div");
-    jtRow.style.cssText = "display:flex;gap:6px;margin-bottom:8px;";
+    jtRow.style.cssText = "display:flex;background:#0f1114;border:1px solid #2e323a;border-radius:10px;" +
+      "padding:3px;gap:3px;margin-bottom:10px;";
     const jtBtns = {};
     const installBox = document.createElement("div");
     const serviceBox = document.createElement("div");
     const paintJt = () => {
       ["install", "service"].forEach((jt) => {
         const on = jt === jobType;
-        jtBtns[jt].style.background = on ? "#2f6fed" : "";
-        jtBtns[jt].style.color = on ? "#fff" : "";
+        const b = jtBtns[jt];
+        b.style.background = on ? "#2f6fed" : "transparent";
+        b.style.color = on ? "#fff" : "#9aa0ab";
+        b.style.boxShadow = on ? "0 2px 8px rgba(47,111,237,.4)" : "none";
       });
       installBox.style.display = jobType === "install" ? "" : "none";
       serviceBox.style.display = jobType === "service" ? "" : "none";
     };
     ["install", "service"].forEach((jt) => {
       const b = document.createElement("button");
-      b.className = "qp-copy";
       b.textContent = jt === "install" ? "Install" : "Service / repair";
-      b.style.cssText = "flex:1;padding:7px 0;";
+      b.style.cssText = "flex:1;padding:8px 0;border:0;border-radius:7px;cursor:pointer;" +
+        "font:600 12px/1 -apple-system,\"Segoe UI\",Roboto,sans-serif;" +
+        "transition:background .15s ease,color .15s ease;";
       b.addEventListener("click", () => { jobType = jt; paintJt(); regen(); });
       jtRow.appendChild(b);
       jtBtns[jt] = b;
     });
     sec.appendChild(jtRow);
+    const profCap = document.createElement("div");
+    profCap.style.cssText = "font-size:10px;font-weight:700;color:#6b7280;letter-spacing:.12em;margin:2px 0 8px;";
+    profCap.textContent = "DOOR PROFILE";
+    sec.appendChild(profCap);
     sec.appendChild(installBox);
     sec.appendChild(serviceBox);
 
@@ -947,9 +960,9 @@
       const ta = document.createElement(area ? "textarea" : "input");
       if (!area) ta.type = "text";
       else ta.rows = rows || 3;
-      ta.style.cssText = "width:100%;box-sizing:border-box;background:#0f1114;border:1px solid #2e323a;" +
-        "color:#e8eaed;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;" +
-        (area ? "resize:vertical;" : "");
+      ta.style.cssText = "width:100%;box-sizing:border-box;background:#101318;border:1px solid #2e323a;" +
+        "border-left:2px solid #2f6fed;color:#e8eaed;border-radius:8px;padding:7px 9px;font-size:13px;" +
+        "font-family:inherit;" + (area ? "resize:vertical;" : "");
       cp.addEventListener("click", () => copyText(ta.value, cp));
       top.appendChild(lab);
       top.appendChild(cp);
@@ -958,6 +971,10 @@
       sec.appendChild(wrap);
       return ta;
     };
+    const genCap = document.createElement("div");
+    genCap.style.cssText = "font-size:10px;font-weight:700;color:#6b7280;letter-spacing:.12em;margin:10px 0 2px;";
+    genCap.textContent = "GENERATED";
+    sec.appendChild(genCap);
     const titleOut = genOut("Estimate title", false);
     const summaryOut = genOut("Estimate description", true, 3);
     const doorOut = genOut("Door description", true, 5);
@@ -997,6 +1014,37 @@
      titleOptIn, openerTa, svcTitleIn, svcSummaryTa].forEach((inp) =>
       inp.addEventListener("input", () => regen(false)));
     closerSel.addEventListener("change", () => regen(false));
+
+    // Re-read the door profile off the page. The Pricing Details modal is
+    // usually opened AFTER this panel initializes, so the first parse often
+    // finds nothing — Re-scan picks it up. Never clobbers typed fields.
+    const profEdited = {};
+    const profInputs = {
+      series: seriesIn, model: modelIn, size: sizeIn, color: colorIn,
+      windows: winIn, insulation: insulIn, track: trackIn, radius: radiusIn,
+    };
+    Object.keys(profInputs).forEach((name) => {
+      profEdited[name] = false;
+      profInputs[name].addEventListener("input", () => { profEdited[name] = true; });
+    });
+    const refreshProfile = () => {
+      const p = parseDoorProfile();
+      if (!p.model && !p.sizeRaw) return false;
+      prof = p;
+      const set = (name, val) => {
+        if (!profEdited[name] && val) profInputs[name].value = val;
+      };
+      set("series", p.series);
+      set("model", p.model);
+      set("size", p.sizeRaw);
+      set("color", p.color);
+      set("windows", p.windows);
+      set("insulation", p.insulation);
+      set("track", p.track);
+      set("radius", p.radius);
+      regen(false);
+      return true;
+    };
 
     const getTexts = () => {
       const p = readProfile();
@@ -1038,7 +1086,7 @@
     saveRow.appendChild(savedNote);
     sec.appendChild(saveRow);
 
-    return { getTexts };
+    return { getTexts, refreshProfile };
   }
 
   function initIStore() {
@@ -1190,6 +1238,7 @@
       note.textContent = describeScrape(s);
       renderLines(s);
       updateTotal();
+      estTexts.refreshProfile();
     });
     body.appendChild(rescrape);
 
