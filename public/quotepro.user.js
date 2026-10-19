@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.1.0
+// @version      1.1.1
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -125,19 +125,52 @@
   }
 
   const compact = (s) => String(s).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const isPriceFor = (label) => /^\s*PRICE FOR\b/i.test(label || "");
   function isWindowsLabel(label) {
-    if (!WINDOW_KEYWORDS.some((k) => compact(label).includes(k))) return false;
+    const t = compact(label);
     // Negations ("NO WINDOWS", "WITHOUT WINDOWS", "WINDOWLESS") mean no windows:
     // the iStore prints "SOLID (NO WINDOWS)" on solid doors.
     if (/\bNO\s+WINDOWS?\b/i.test(label) ||
         /\bWITHOUT\s+WINDOWS?\b/i.test(label) ||
         /WINDOWLESS/i.test(label)) return false;
-    return true;
+    const glassWord = /WINDOW|GLASS|GLAZING|LITE|INSERT|FULLVISION|FULLVIEW|VISION/.test(t);
+    // "INSULAT..." alone is insulation (e.g. "PRICE FOR INSULATED"), not
+    // windows — it needs a glass-specific companion word to count.
+    if (/INSULAT/.test(t) && !glassWord) return false;
+    return glassWord;
   }
   function isDoorLabel(label) {
     // "PRICE FOR ..." cards are add-ons/options, never the door itself.
-    if (/^\s*PRICE FOR\b/i.test(label)) return false;
+    if (isPriceFor(label)) return false;
     return DOOR_KEYWORDS.some((k) => compact(label).includes(k));
+  }
+  // An item whose label IS a product line ("16' 0\" X 8' 0\" | 9203 | ...")
+  // is a per-product subtotal row, not a line item.
+  function isProductLineLabel(label) {
+    const t = label || "";
+    if (/Product\s*:/i.test(t)) return true;
+    return /^\s*\d+\s*'\s*\d*\s*"?\s*x\s*\d+\s*'\s*\d*\s*"?\s*\|/i.test(t);
+  }
+  // Every model number from every "Product:" line on the page (multi-door
+  // orders list one product group per door).
+  function parseDoorModels() {
+    const models = [];
+    try {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (/Product\s*:/i.test(node.nodeValue || "")) {
+          const host = node.parentElement;
+          const t = host ? host.textContent : node.nodeValue;
+          const m = t.match(/Product\s*:\s*[^|]+\|\s*([^|]+)/i);
+          if (m) {
+            const model = m[1].replace(/\s+/g, " ").trim();
+            if (model && models.indexOf(model) === -1) models.push(model);
+          }
+        }
+      }
+    } catch (e) { /* noop */ }
+    return models;
   }
 
   const getApiKey = () => GM_getValue(STORE.key, "");
@@ -661,11 +694,12 @@
   //   because the iStore lists the main product before its options.
   // allowGuess: when true and no door found at all, the largest remaining
   // amount is used as a flagged door guess (fallback scan only).
-  function classifyItems(items, allowGuess) {
+  function classifyItems(items, allowGuess, models) {
+    models = models || [];
     const TOTAL_WORDS = /\b(subtotal|grand total|order total|total due|balance due|amount due|total price)\b/i;
     const included = [];
     items.forEach((r) => {
-      if (TOTAL_WORDS.test(r.label)) { r.bucket = "total"; }
+      if (TOTAL_WORDS.test(r.label) || isProductLineLabel(r.label)) { r.bucket = "total"; }
       else included.push(r);
     });
     if (included.length >= 3) {
@@ -681,23 +715,39 @@
         }
       }
     }
+    // The door card's header carries the model number from the page's
+    // "Product:" line(s) — the reliable door signal on multi-door orders.
+    const modelRes = models
+      .filter((m) => m && m.length >= 3)
+      .map((m) => new RegExp("\\b" + m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i"));
+    const isModelCard = (label) => modelRes.some((re) => re.test(label || ""));
     let door = 0, windows = 0, misc = 0, doorGuess = false;
     const rest = [];
-    let doorSet = false;
+    let doorFound = false;
     included.forEach((r) => {
       if (isWindowsLabel(r.label)) { r.bucket = "windows"; windows += r.amount; return; }
-      if (!doorSet && isDoorLabel(r.label)) { r.bucket = "door"; door = r.amount; doorSet = true; return; }
+      if (isPriceFor(r.label)) { rest.push(r); return; } // options are never the door
+      if (isDoorLabel(r.label) || isModelCard(r.label)) {
+        r.bucket = "door";
+        door += r.amount; // multi-door orders accumulate every door card
+        doorFound = true;
+        return;
+      }
       rest.push(r);
     });
     let guessed = null;
-    if (!doorSet && rest.length) {
+    if (!doorFound && rest.length) {
+      // Last resort: first non-option item (an option card must never win).
+      const pool = rest.filter((r) => !isPriceFor(r.label));
+      const pickFrom = pool.length ? pool : rest;
       if (allowGuess) {
-        guessed = rest.reduce((a, b) => (b.amount > a.amount ? b : a));
+        guessed = pickFrom.reduce((a, b) => (b.amount > a.amount ? b : a));
         guessed.bucket = "door";
         door = guessed.amount;
         doorGuess = true;
       } else {
-        const first = rest.shift();
+        const first = pickFrom[0];
+        rest.splice(rest.indexOf(first), 1);
         first.bucket = "door";
         door = first.amount;
       }
@@ -714,14 +764,17 @@
   function describeScrape(s) {
     if (!s.rowCount) return "No priced lines found on this page \u2014 type the costs in manually.";
     const what = s.viaNet ? "Net Price line(s)" : "priced lines";
-    return "Read " + s.rowCount + " " + what + " off this page. Verify before calculating" +
+    const excl = (s.lines || []).filter((l) => l.bucket === "total").length;
+    return "Read " + s.rowCount + " " + what + " off this page" +
+      (excl ? " (" + excl + " subtotal" + (excl > 1 ? "s" : "") + " excluded)" : "") +
+      ". Verify before calculating" +
       (s.doorGuess ? " \u2014 door value is a guess (highlighted)." : ".");
   }
 
   function scrapeIStore() {
     const netItems = findNetPriceItems();
     if (netItems.length) {
-      const r = classifyItems(netItems, false);
+      const r = classifyItems(netItems, false, parseDoorModels());
       r.viaNet = true;
       return r;
     }
@@ -749,7 +802,7 @@
       if (amount === null || amount <= 0) continue;
       rows.push({ label, amount });
     }
-    const r = classifyItems(rows, true);
+    const r = classifyItems(rows, true, parseDoorModels());
     r.viaNet = false;
     return r;
   }
