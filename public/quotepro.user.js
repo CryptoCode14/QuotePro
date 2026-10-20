@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.4.2
+// @version      1.4.3
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -695,10 +695,12 @@
     .qp-copy:active { transform: scale(.96); }
     .qp-ok { color: #7ee2a8; font-size: 12px; margin-top: 6px; display: none; }
     .qp-dock { position: fixed; z-index: 2147483647; isolation: isolate;
-      padding: 11px 13px 10px; border-radius: 18px; overflow: hidden;
+      padding: 10px 16px 10px 10px; border-radius: 16px; overflow: hidden;
       cursor: grab; user-select: none; touch-action: none;
-      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      display: flex; flex-direction: row; align-items: center; gap: 11px;
       transition: opacity .2s var(--ease-out), transform .24s var(--ease-drawer), filter .16s ease; }
+    .qp-dock .qp-dock-text { position: relative; z-index: 1; display: flex;
+      flex-direction: column; align-items: flex-start; gap: 2px; }
     .qp-dock:hover { filter: brightness(1.1); }
     .qp-dock:active { cursor: grabbing; }
     .qp-dock.qp-hidden { opacity: 0; transform: scale(.9); pointer-events: none; }
@@ -717,16 +719,13 @@
     .qp-head-icon img { width: 100%; height: 100%; object-fit: contain; padding: 2px;
       box-sizing: border-box; display: block; pointer-events: none; }
     .qp-dock .qp-dock-label { position: relative; z-index: 1; letter-spacing: .22em;
-      font-size: 8.5px; font-weight: 700; color: rgba(255,255,255,.48); padding-left: .22em; }
-    .qp-dock .qp-dock-total { position: relative; z-index: 1; font-size: 11px; font-weight: 700;
-      color: #7ee2a8; font-variant-numeric: tabular-nums; max-width: 74px; overflow: hidden;
-      text-overflow: ellipsis; white-space: nowrap; }
+      font-size: 9px; font-weight: 700; color: rgba(255,255,255,.48); }
+    .qp-dock .qp-dock-total { position: relative; z-index: 1; font-size: 15px; font-weight: 700;
+      color: #7ee2a8; font-variant-numeric: tabular-nums; max-width: 130px; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap; line-height: 1.15; }
     .qp-liquid { position: fixed; left: 0; top: 0; z-index: 1; pointer-events: none;
       overflow: visible; visibility: hidden;
       filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)) drop-shadow(0 18px 30px rgba(0,0,0,.35)); }
-    .qp-dock.qp-dock-h { flex-direction: row; padding: 10px 14px; gap: 10px; }
-    .qp-dock.qp-dock-h .qp-dock-label { padding-left: 0; }
-    .qp-dock.qp-dock-h .qp-dock-total { max-width: 96px; }
     @media (prefers-reduced-motion: reduce) {
       .qp-panel, .qp-dock, .qp-btn, .qp-copy, .qp-head .qp-x { transition-duration: .01ms !important; }
     }
@@ -805,9 +804,12 @@
     const dockTotal = document.createElement("span");
     dockTotal.className = "qp-dock-total";
     dockTotal.style.display = "none";
+    const dockText = document.createElement("span");
+    dockText.className = "qp-dock-text";
+    dockText.appendChild(dockLabel);
+    dockText.appendChild(dockTotal);
     dock.appendChild(dockMark);
-    dock.appendChild(dockLabel);
-    dock.appendChild(dockTotal);
+    dock.appendChild(dockText);
     shadow.appendChild(dock);
     document.documentElement.appendChild(host);
 
@@ -1297,7 +1299,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v1.4.2";
+    verEl.textContent = "QuotePro browser tool v1.4.3";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
