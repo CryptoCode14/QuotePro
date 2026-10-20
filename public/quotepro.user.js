@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.4.3
+// @version      1.4.4
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -1274,6 +1274,25 @@
       }
       place(dock);
     };
+    // The dock total has ONE source of truth on every page: the final
+    // price of the last calculated quote (STORE.lastResult). Both tabs
+    // watch it live, so a quote calculated on iStore shows the identical
+    // total on ServiceTitan even when that tab was already open — and
+    // nothing else (least of all the iStore dealer-cost field sum, which
+    // used to stomp the dock with $0.00 at build) may overwrite it.
+    let dockTotalShown;
+    const syncDockTotal = () => {
+      const last = getLastResult();
+      const txt = last && typeof last.final_price === "number" ? fmt$(last.final_price) : null;
+      if (txt !== dockTotalShown) {
+        dockTotalShown = txt;
+        setDockTotal(txt);
+      }
+    };
+    syncDockTotal();
+    document.addEventListener("visibilitychange", syncDockTotal);
+    window.addEventListener("focus", syncDockTotal);
+    setInterval(syncDockTotal, 1500);
     let suppressDockClick = false;
     dock.addEventListener("click", () => {
       if (suppressDockClick) { suppressDockClick = false; return; }
@@ -1299,7 +1318,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v1.4.3";
+    verEl.textContent = "QuotePro browser tool v1.4.4";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
@@ -1898,9 +1917,9 @@
       return Number.isFinite(v) && v >= 0 ? v : 0;
     };
     const updateTotal = () => {
-      const t = fmt$(numVal(doorIn) + numVal(winIn) + numVal(miscIn));
-      totalVal.textContent = t;
-      setDockTotal(t);
+      // In-panel readout only ("Total dealer cost -> ServiceTitan").
+      // The DOCK total belongs to the calculated quote (see syncDockTotal).
+      totalVal.textContent = fmt$(numVal(doorIn) + numVal(winIn) + numVal(miscIn));
     };
     [doorIn, winIn, miscIn].forEach((inp) => inp.addEventListener("input", updateTotal));
     updateTotal();
@@ -1985,6 +2004,7 @@
             at: Date.now(),
             texts: estTexts.getTexts(),
           });
+          setDockTotal(fmt$(data.final_price));
           renderResults(res, data, okMsg);
         },
         (msg) => {
