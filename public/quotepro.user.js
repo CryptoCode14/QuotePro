@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.3.1
+// @version      1.3.2
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -106,6 +106,7 @@
 
   const fmt = (n) =>
     Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt$ = (n) => (Number(n) < 0 ? "-$" : "$") + fmt(Math.abs(Number(n)));
 
   // Short display label for a scraped net-price card: the header before
   // "Multiplier:", with any price tail stripped.
@@ -118,10 +119,14 @@
   }
 
   function parseMoney(text) {
-    // Matches $1,234.56 / 1234.56 / $45 — first plausible money value in text.
-    const m = String(text).match(/\$?\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{2})|\$?\s*[0-9]+\.[0-9]{2}|\$[0-9][0-9,]*)/);
+    // Matches $1,234.56 / 1234.56 / $45, and negatives (-59.83, (59.83)) —
+    // the iStore prints credit lines (e.g. a track-mount credit) as plain
+    // negative amounts with no $ sign.
+    const t = String(text).replace(/[\u2212\u2013]/g, "-");
+    const m = t.match(/(-)?\s*\$?\s*(\()?([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{2})|[0-9]+\.[0-9]{2}|[0-9][0-9,]*)(\))?/);
     if (!m) return null;
-    const n = Number(m[1].replace(/[$,\s]/g, ""));
+    let n = Number(m[3].replace(/[$,\s]/g, ""));
+    if (m[1] || (m[2] && m[4])) n = -n;
     return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
   }
 
@@ -435,12 +440,18 @@
   // Track / radius live in free-floating product-line segments (for example
   // '2" FLAG & JAMB BRACKETS LOOSE', '12" RADIUS'), not in a "track" segment,
   // so read them off the whole product text.
+  // Weston, 2026-10-20: descriptions carry just the track size + "Track"
+  // ("2\" Track"). Bracket kinds are NOT named (no more Flag & Jamb) —
+  // the only kinds spelled out are Reverse Angle and Continuous Angle.
   function mapTrackFromText(rest) {
-    if (/FLAG\s*&\s*JAMB/i.test(rest)) return '2" Flag & Jamb Track';
-    if (/REVERSE\s+ANGLE/i.test(rest)) return '2" RA Track';
-    if (/\bCA\s+TRACK\b/i.test(rest)) return '2" CA Track';
     if (/LOW\s+HEADROOM|\bLHR\b/i.test(rest)) return "Low Headroom Track";
-    return "";
+    const sizeM = rest.match(/(\d+(?:\.\d+)?)\s*"\s*(?:FLAG|REVERSE|CONTINUOUS|CA\b|RA\b|BRACKET|TRACK)/i);
+    const hasTrack = /FLAG|JAMB|BRACKET|ANGLE|\bTRACK\b|MOUNT/i.test(rest);
+    if (!sizeM && !hasTrack) return "";
+    const size = sizeM ? sizeM[1] : "2";
+    if (/REVERSE\s+ANGLE|\bRA\s+BRACKET/i.test(rest)) return size + '" Reverse Angle Track';
+    if (/CONTINUOUS\s+ANGLE|\bCA\s+BRACKET|\bCA\s+TRACK\b/i.test(rest)) return size + '" Continuous Angle Track';
+    return size + '" Track';
   }
   function mapRadiusFromText(rest) {
     const hlt = rest.match(/(\d+(?:\.\d+)?)\s*"?\s*HLT/i);
@@ -779,7 +790,11 @@
         y: Math.min(Math.max(Math.round(fy * vh), 8), Math.max(8, vh - h - 8)),
       };
     };
+    // Elements being dragged or springing own their position. place()
+    // calls from refreshes/resize must not fight them (post-drag blink).
+    const busyEls = new Set();
     const place = (el) => {
+      if (busyEls.has(el)) return;
       const p = clampFor(el, anchor.fx, anchor.fy);
       el.style.left = p.x + "px";
       el.style.top = p.y + "px";
@@ -794,12 +809,16 @@
 
     /* ---- spring: critically damped, velocity-preserving ---- */
     let spring = null;
-    const stopSpring = () => { if (spring) { cancelAnimationFrame(spring.raf); spring = null; } };
+    const stopSpring = () => {
+      if (spring) { cancelAnimationFrame(spring.raf); busyEls.delete(spring.el); spring = null; }
+    };
     const springTo = (el, from, to, vel, done) => {
       stopSpring();
-      if (reducedMotion()) { el.style.transform = ""; done(to); return; }
+      busyEls.add(el);
+      if (reducedMotion()) { el.style.transform = ""; busyEls.delete(el); done(to); return; }
       const K = 300, C = 29;
       const st = {
+        el: el,
         x: from.x, y: from.y, vx: vel.x || 0, vy: vel.y || 0,
         tx: to.x, ty: to.y, last: performance.now(), raf: 0,
       };
@@ -820,6 +839,7 @@
         if (settled) {
           spring = null;
           el.style.transform = "";
+          busyEls.delete(el);
           done({ x: st.tx, y: st.ty });
           return;
         }
@@ -836,9 +856,16 @@
       handle.addEventListener("pointerdown", (e) => {
         if (e.button !== 0) return;
         if (e.target.closest && e.target.closest(".qp-x")) return;
+        // Commit the CURRENT visual spot to left/top before clearing the
+        // transform — otherwise a re-grab mid-spring snaps the element
+        // back to its pre-spring position (the visible blink).
+        const r0 = el.getBoundingClientRect();
         stopSpring();
+        el.style.left = Math.round(r0.left) + "px";
+        el.style.top = Math.round(r0.top) + "px";
         el.classList.remove("qp-dragging");
         el.style.transform = "";
+        busyEls.add(el);
         const r = el.getBoundingClientRect();
         drag = {
           id: e.pointerId, sx: e.clientX, sy: e.clientY,
@@ -865,7 +892,7 @@
         const wasActive = drag.active;
         const d = drag;
         drag = null;
-        if (!wasActive) { el.classList.remove("qp-dragging"); return; }
+        if (!wasActive) { el.classList.remove("qp-dragging"); busyEls.delete(el); return; }
         if (el === dock) suppressDockClick = true;
         const dx = e ? e.clientX - d.sx : 0, dy = e ? e.clientY - d.sy : 0;
         // Release velocity from the last ~100ms of samples.
@@ -901,6 +928,9 @@
       handle.addEventListener("pointerup", (e) => finish(e, false));
       handle.addEventListener("pointercancel", (e) => finish(e, true));
       handle.addEventListener("dblclick", () => {
+        stopSpring();
+        el.style.transform = "";
+        busyEls.delete(el);
         anchor = { fx: 0.012, fy: 0.30 };
         persist();
         placeAll();
@@ -908,6 +938,12 @@
     };
 
     const setDocked = (docked) => {
+      stopSpring();
+      [panel, dock].forEach((el2) => {
+        el2.style.transform = "";
+        el2.classList.remove("qp-dragging");
+        busyEls.delete(el2);
+      });
       panel.classList.toggle("qp-min", docked);
       dock.classList.toggle("qp-hidden", !docked);
       dock.setAttribute("aria-expanded", docked ? "false" : "true");
@@ -1002,11 +1038,13 @@
       }
       if (!best || seenCards.has(best)) continue;
       seenCards.add(best);
-      const label = (best.innerText || "").replace(/\s+/g, " ").trim();
-      const m = label.match(/net price:\s*\$?\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+\.[0-9]{2})/i);
+      const label = (best.innerText || "").replace(/\s+/g, " ").replace(/[\u2212\u2013]/g, "-").trim();
+      const m = label.match(/net price:\s*\$?\s*(-)?\s*(\()?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+\.[0-9]{2})(\)?)/i);
       if (!m) continue;
-      const amount = Number(m[1].replace(/,/g, ""));
-      if (!Number.isFinite(amount) || amount <= 0) continue;
+      let amount = Number(m[3].replace(/,/g, ""));
+      if (m[1] || (m[2] && m[4])) amount = -amount;
+      // Credits are real lines (negative Net Price); only $0 lines are noise.
+      if (!Number.isFinite(amount) || amount === 0) continue;
       items.push({ label, amount });
     }
     return items;
@@ -1125,7 +1163,7 @@
       seen.add(el);
       const label = (el.innerText || "").replace(/\s+/g, " ").trim();
       const amount = parseMoney(label);
-      if (amount === null || amount <= 0) continue;
+      if (amount === null || amount === 0) continue;
       rows.push({ label, amount });
     }
     const r = classifyItems(rows, true, parseDoorModels());
@@ -1499,7 +1537,7 @@
         right.style.cssText = "display:flex;align-items:center;gap:8px;flex-shrink:0;";
         const amt = document.createElement("span");
         amt.style.cssText = "font-variant-numeric:tabular-nums;color:#e8eaed;";
-        amt.textContent = "$" + fmt(ln.amount);
+        amt.textContent = fmt$(ln.amount);
         const tag = document.createElement("span");
         tag.style.cssText = "font-size:10px;padding:2px 7px;border-radius:20px;background:#24282f;color:#9aa0ab;white-space:nowrap;";
         tag.textContent = ln.bucket === "total" ? "total \u2014 excluded" : "\u2192 " + ln.bucket;
@@ -1539,7 +1577,7 @@
       return Number.isFinite(v) && v >= 0 ? v : 0;
     };
     const updateTotal = () => {
-      const t = "$" + fmt(numVal(doorIn) + numVal(winIn) + numVal(miscIn));
+      const t = fmt$(numVal(doorIn) + numVal(winIn) + numVal(miscIn));
       totalVal.textContent = t;
       setDockTotal(t);
     };
@@ -1670,7 +1708,7 @@
       const right = document.createElement("span");
       const val = document.createElement("span");
       val.className = "qp-v " + r.cls;
-      val.textContent = "$" + fmt(r.v);
+      val.textContent = fmt$(r.v);
       const cp = document.createElement("button");
       cp.className = "qp-copy";
       cp.textContent = "Copy";
@@ -1746,16 +1784,16 @@
       body.innerHTML = "";
       const last = getLastResult();
       seenAt = last ? last.at : 0;
-      if (last) setDockTotal("$" + fmt(last.final_price));
+      if (last) setDockTotal(fmt$(last.final_price));
 
       const note = document.createElement("div");
       note.className = "qp-note";
       if (last) {
         const when = new Date(last.at).toLocaleTimeString();
         note.textContent =
-          "Last calculation (" + when + "): dealer $" + fmt(last.dealer_cost_total) +
-          " \u00b7 double $" + fmt(last.double_cost) +
-          " \u00b7 final $" + fmt(last.final_price) + ".";
+          "Last calculation (" + when + "): dealer " + fmt$(last.dealer_cost_total) +
+          " \u00b7 double " + fmt$(last.double_cost) +
+          " \u00b7 final " + fmt$(last.final_price) + ".";
       } else {
         note.textContent = "No calculation saved yet \u2014 run Calculate on the iStore tab first.";
       }
@@ -1858,7 +1896,7 @@
             "padding:6px 0;border-bottom:1px dashed #262a31;";
           const lab = document.createElement("span");
           lab.style.cssText = "color:#9aa0ab;font-size:12px;";
-          lab.textContent = k.label + " ($" + fmt(last[k.key]) + ")" + (map[k.key] ? "" : " \u2014 not mapped");
+          lab.textContent = k.label + " (" + fmt$(last[k.key]) + ")" + (map[k.key] ? "" : " \u2014 not mapped");
           const btns = document.createElement("span");
           btns.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
           const mk = (txt, fn) => {
