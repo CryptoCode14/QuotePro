@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.3.2
+// @version      1.4.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -719,6 +719,12 @@
     .qp-dock .qp-dock-total { position: relative; z-index: 1; font-size: 11px; font-weight: 700;
       color: #7ee2a8; font-variant-numeric: tabular-nums; max-width: 74px; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
+    .qp-liquid { position: fixed; left: 0; top: 0; z-index: 1; pointer-events: none;
+      overflow: visible; visibility: hidden;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)) drop-shadow(0 18px 30px rgba(0,0,0,.35)); }
+    .qp-dock.qp-dock-h { flex-direction: row; padding: 10px 14px; gap: 10px; }
+    .qp-dock.qp-dock-h .qp-dock-label { padding-left: 0; }
+    .qp-dock.qp-dock-h .qp-dock-total { max-width: 96px; }
     @media (prefers-reduced-motion: reduce) {
       .qp-panel, .qp-dock, .qp-btn, .qp-copy, .qp-head .qp-x { transition-duration: .01ms !important; }
     }
@@ -753,6 +759,30 @@
       '<button class="qp-x" title="Dock (Alt+Q)">\u2013</button></div>' +
       '<div class="qp-body"></div>';
     shadow.appendChild(style);
+    // Liquid silhouette layer: an SVG meniscus bridge rendered behind the
+    // panel/pill (sized to the element + margin, never the full viewport),
+    // shadowed with CSS drop-shadow so the flare and body read as one
+    // liquid object when the dock bleeds into a screen edge.
+    const svgNS = "http://www.w3.org/2000/svg";
+    const liquid = document.createElementNS(svgNS, "svg");
+    liquid.setAttribute("class", "qp-liquid");
+    const defs = document.createElementNS(svgNS, "defs");
+    const grad = document.createElementNS(svgNS, "linearGradient");
+    grad.setAttribute("id", "qpMetal");
+    grad.setAttribute("gradientUnits", "userSpaceOnUse");
+    [["0", "#26282c"], ["0.55", "#1b1c1f"], ["1", "#151619"]].forEach((pair) => {
+      const stop = document.createElementNS(svgNS, "stop");
+      stop.setAttribute("offset", pair[0]);
+      stop.setAttribute("stop-color", pair[1]);
+      grad.appendChild(stop);
+    });
+    defs.appendChild(grad);
+    liquid.appendChild(defs);
+    const bridge = document.createElementNS(svgNS, "path");
+    bridge.setAttribute("class", "qp-bridge");
+    bridge.setAttribute("fill", "url(#qpMetal)");
+    liquid.appendChild(bridge);
+    shadow.appendChild(liquid);
     shadow.appendChild(panel);
 
     // Floating dock pill: lives wherever the panel was left, detached from
@@ -793,11 +823,115 @@
     // Elements being dragged or springing own their position. place()
     // calls from refreshes/resize must not fight them (post-drag blink).
     const busyEls = new Set();
+    /* ---- liquid state ---- */
+    const EDGES = ["left", "right", "top", "bottom"];
+    let snappedEdge = EDGES.indexOf(anchor.edge) >= 0 ? anchor.edge : null;
+    let engEdge = snappedEdge;
+    let bleedCur = snappedEdge ? 1 : 0;
+    let tensionCur = 0;
+    const clamp01 = (v) => Math.min(1, Math.max(0, v));
+    const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+    const clampAlong = (v, size, total) =>
+      Math.min(Math.max(Math.round(v), 8), Math.max(8, total - size - 8));
+    const activeEl = () => (panel.classList.contains("qp-min") ? dock : panel);
+    // Contoured merge: the wall-side corner radius flattens as bleed -> 1.
+    const applyContour = (el, edge, bleed) => {
+      const r = el === dock ? 18 : 20;
+      if (!edge || bleed < 0.45) { el.style.borderRadius = ""; return; }
+      const flat = Math.max(0, Math.round(r * (1 - smooth(0.45, 1, bleed))));
+      if (edge === "left") el.style.borderRadius = flat + "px " + r + "px " + r + "px " + flat + "px";
+      else if (edge === "right") el.style.borderRadius = r + "px " + flat + "px " + flat + "px " + r + "px";
+      else if (edge === "top") el.style.borderRadius = flat + "px " + flat + "px " + r + "px " + r + "px";
+      else el.style.borderRadius = r + "px " + r + "px " + flat + "px " + flat + "px";
+    };
+    // Meniscus bridge: a flared tongue of metal from the engaged wall to
+    // the element's near edge, tips spreading along the wall. Adapted from
+    // Weston's liquid-dock prototype (flare ~95-105px, wall-tangent
+    // beziers, neck pinch under tear tension), drawn flare-only because
+    // the element renders its own body on top.
+    const PAD = 150;
+    const renderBridge = () => {
+      const edge = engEdge;
+      if (!edge || bleedCur <= 0.01) {
+        bridge.setAttribute("d", "");
+        liquid.style.visibility = "hidden";
+        return;
+      }
+      const el = activeEl();
+      const rect = el.getBoundingClientRect();
+      const w = rect.width, h = rect.height;
+      if (w < 4 || h < 4) { bridge.setAttribute("d", ""); return; }
+      liquid.style.visibility = "visible";
+      liquid.setAttribute("width", Math.round(w + PAD * 2));
+      liquid.setAttribute("height", Math.round(h + PAD * 2));
+      liquid.style.transform =
+        "translate3d(" + Math.round(rect.left - PAD) + "px," + Math.round(rect.top - PAD) + "px,0)";
+      grad.setAttribute("x1", "0");
+      grad.setAttribute("x2", "0");
+      grad.setAttribute("y1", String(PAD));
+      grad.setAttribute("y2", String(PAD + h));
+      const tension = tensionCur;
+      const flare = (el === dock ? 105 : 95) * Math.min(1, bleedCur) * (1 - tension * 0.35);
+      const vw = window.innerWidth, vh = window.innerHeight;
+      let d = "";
+      if (edge === "left" || edge === "right") {
+        const gap = Math.max(0, edge === "left" ? rect.left : vw - rect.right);
+        const pinch = gap * tension * 0.40;
+        const neck = Math.max(0, gap * (0.15 + (1 - tension) * 0.22) + w * 0.12 * (1 - tension * 0.5));
+        const aTop = PAD + pinch, aBot = PAD + h - pinch;
+        const topTip = PAD - flare, botTip = PAD + h + flare;
+        if (edge === "left") {
+          const wallX = PAD - gap, ax = PAD;
+          d = "M " + wallX + " " + topTip +
+            " C " + wallX + " " + (topTip + flare * 0.32) + ", " + (wallX + neck) + " " + aTop + ", " + ax + " " + aTop +
+            " L " + ax + " " + aBot +
+            " C " + (wallX + neck) + " " + aBot + ", " + wallX + " " + (botTip - flare * 0.32) + ", " + wallX + " " + botTip + " Z";
+        } else {
+          const wallX = PAD + w + gap, ax = PAD + w;
+          d = "M " + wallX + " " + topTip +
+            " C " + wallX + " " + (topTip + flare * 0.32) + ", " + (wallX - neck) + " " + aTop + ", " + ax + " " + aTop +
+            " L " + ax + " " + aBot +
+            " C " + (wallX - neck) + " " + aBot + ", " + wallX + " " + (botTip - flare * 0.32) + ", " + wallX + " " + botTip + " Z";
+        }
+      } else {
+        const gap = Math.max(0, edge === "top" ? rect.top : vh - rect.bottom);
+        const pinch = gap * tension * 0.40;
+        const neck = Math.max(0, gap * (0.15 + (1 - tension) * 0.22) + h * 0.12 * (1 - tension * 0.5));
+        const aLeft = PAD + pinch, aRight = PAD + w - pinch;
+        const leftTip = PAD - flare, rightTip = PAD + w + flare;
+        if (edge === "top") {
+          const wallY = PAD - gap, ay = PAD;
+          d = "M " + leftTip + " " + wallY +
+            " C " + (leftTip + flare * 0.32) + " " + wallY + ", " + aLeft + " " + (wallY + neck) + ", " + aLeft + " " + ay +
+            " L " + aRight + " " + ay +
+            " C " + aRight + " " + (wallY + neck) + ", " + (rightTip - flare * 0.32) + " " + wallY + ", " + rightTip + " " + wallY + " Z";
+        } else {
+          const wallY = PAD + h + gap, ay = PAD + h;
+          d = "M " + leftTip + " " + wallY +
+            " C " + (leftTip + flare * 0.32) + " " + wallY + ", " + aLeft + " " + (wallY - neck) + ", " + aLeft + " " + ay +
+            " L " + aRight + " " + ay +
+            " C " + aRight + " " + (wallY - neck) + ", " + (rightTip - flare * 0.32) + " " + wallY + ", " + rightTip + " " + wallY + " Z";
+        }
+      }
+      bridge.setAttribute("d", d);
+    };
     const place = (el) => {
       if (busyEls.has(el)) return;
-      const p = clampFor(el, anchor.fx, anchor.fy);
+      if (el === dock) {
+        dock.classList.toggle("qp-dock-h", snappedEdge === "top" || snappedEdge === "bottom");
+      }
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const w = el.offsetWidth || 60, h = el.offsetHeight || 60;
+      let p;
+      if (snappedEdge === "left") p = { x: 0, y: clampAlong(anchor.fy * vh, h, vh) };
+      else if (snappedEdge === "right") p = { x: vw - w, y: clampAlong(anchor.fy * vh, h, vh) };
+      else if (snappedEdge === "top") p = { x: clampAlong(anchor.fx * vw, w, vw), y: 0 };
+      else if (snappedEdge === "bottom") p = { x: clampAlong(anchor.fx * vw, w, vw), y: vh - h };
+      else p = clampFor(el, anchor.fx, anchor.fy);
       el.style.left = p.x + "px";
       el.style.top = p.y + "px";
+      applyContour(el, snappedEdge, snappedEdge ? 1 : 0);
+      if (el === activeEl()) renderBridge();
     };
     const persist = () => { try { GM_setValue(STORE.pos, anchor); } catch (e) { /* noop */ } };
     const placeAll = () => { place(panel); place(dock); };
@@ -807,47 +941,188 @@
     const reducedMotion = () =>
       window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    /* ---- spring: critically damped, velocity-preserving ---- */
-    let spring = null;
-    const stopSpring = () => {
-      if (spring) { cancelAnimationFrame(spring.raf); busyEls.delete(spring.el); spring = null; }
+    /* ---- liquid motion engine (v1.4.0) ----
+       The behavior of Weston's liquid edge-dock prototype, upgraded per
+       the liquid-techniques research: time-normalised springs on separate
+       channels (pointer-follow 240/z0.84, snap-home 330/z0.95, bleed and
+       tension 150/z0.68), iOS rubber-band tear resistance (c=0.55,
+       d=120) with the neck derived as pull minus panel offset,
+       velocity-aware rupture past 85px of pull, snap commit inside 24px
+       on 70ms dwell or slow movement (instant inside 8px), a 250ms
+       re-snap lockout after rupture, and a loop that sleeps at rest. */
+    const BLEED_NEAR = 52, BLEED_FULL = 14, SNAP_ZONE = 24, SNAP_NOW = 8;
+    const TEAR_PULL = 85, LOCKOUT_MS = 250;
+    const rubber = (x) => (x * 120 * 0.55) / (120 + 0.55 * x);
+    let bleedTgt = bleedCur, bleedVel = 0;
+    let tensionTgt = 0, tensionVel = 0;
+    let lockoutUntil = 0;
+    let mot = null;
+
+    const nearestEdge = (x, y, w, h) => {
+      const c = [
+        ["left", x], ["right", window.innerWidth - (x + w)],
+        ["top", y], ["bottom", window.innerHeight - (y + h)],
+      ];
+      c.sort((a, b) => a[1] - b[1]);
+      return { edge: c[0][0], gap: Math.max(0, c[0][1]) };
     };
-    const springTo = (el, from, to, vel, done) => {
-      stopSpring();
-      busyEls.add(el);
-      if (reducedMotion()) { el.style.transform = ""; busyEls.delete(el); done(to); return; }
-      const K = 300, C = 29;
-      const st = {
-        el: el,
-        x: from.x, y: from.y, vx: vel.x || 0, vy: vel.y || 0,
-        tx: to.x, ty: to.y, last: performance.now(), raf: 0,
+    const flushPos = (edge, x, y, w, h) => {
+      const vw = window.innerWidth, vh = window.innerHeight;
+      if (edge === "left") return { x: 0, y: clampAlong(y, h, vh) };
+      if (edge === "right") return { x: vw - w, y: clampAlong(y, h, vh) };
+      if (edge === "top") return { x: clampAlong(x, w, vw), y: 0 };
+      return { x: clampAlong(x, w, vw), y: vh - h };
+    };
+    const commitMot = (m) => {
+      m.el.style.left = Math.round(m.x) + "px";
+      m.el.style.top = Math.round(m.y) + "px";
+      m.el.style.transform = "";
+      m.el.classList.remove("qp-dragging");
+      anchor = { fx: m.x / window.innerWidth, fy: m.y / window.innerHeight, edge: snappedEdge };
+      persist();
+      placeAll();
+    };
+    const motStop = (commit) => {
+      if (!mot) return;
+      cancelAnimationFrame(mot.raf);
+      const m = mot;
+      mot = null;
+      busyEls.delete(m.el);
+      m.el.style.willChange = "";
+      if (commit) commitMot(m);
+    };
+    const motStart = (el) => {
+      if (mot && mot.el === el) return mot;
+      motStop(true);
+      const r = el.getBoundingClientRect();
+      el.style.left = Math.round(r.left) + "px";
+      el.style.top = Math.round(r.top) + "px";
+      el.style.transform = "";
+      const m = {
+        el: el, bx: r.left, by: r.top,
+        x: r.left, y: r.top, vx: 0, vy: 0, tx: r.left, ty: r.top,
+        dragging: false, last: performance.now(), raf: 0,
+        zoneEdge: null, zoneSince: 0, nearEdge: null,
       };
-      const step = (now) => {
-        let dt = Math.min(0.05, (now - st.last) / 1000);
-        st.last = now;
-        while (dt > 0) {
-          const h = Math.min(dt, 1 / 60);
-          dt -= h;
-          st.vx += (-K * (st.x - st.tx) - C * st.vx) * h;
-          st.vy += (-K * (st.y - st.ty) - C * st.vy) * h;
-          st.x += st.vx * h;
-          st.y += st.vy * h;
-        }
-        el.style.transform = "translate3d(" + st.x + "px," + st.y + "px,0)";
-        const settled = Math.abs(st.x - st.tx) < 0.5 && Math.abs(st.y - st.ty) < 0.5 &&
-          Math.abs(st.vx) < 8 && Math.abs(st.vy) < 8;
-        if (settled) {
-          spring = null;
-          el.style.transform = "";
-          busyEls.delete(el);
-          done({ x: st.tx, y: st.ty });
+      mot = m;
+      busyEls.add(el);
+      el.style.willChange = "transform";
+      m.raf = requestAnimationFrame(motStep);
+      return m;
+    };
+    const motStep = (now) => {
+      const m = mot;
+      if (!m) return;
+      let dt = Math.min(0.033, Math.max(0.0005, (now - m.last) / 1000));
+      m.last = now;
+      const RM = reducedMotion();
+      const kPos = m.dragging ? 240 : 330;
+      const zPos = RM ? 1 : (m.dragging ? 0.84 : 0.95);
+      while (dt > 0) {
+        const h = Math.min(dt, 1 / 120);
+        dt -= h;
+        const cP = 2 * zPos * Math.sqrt(kPos);
+        m.vx += (-kPos * (m.x - m.tx) - cP * m.vx) * h;
+        m.vy += (-kPos * (m.y - m.ty) - cP * m.vy) * h;
+        m.x += m.vx * h;
+        m.y += m.vy * h;
+        const cB = 2 * (RM ? 1 : 0.68) * Math.sqrt(150);
+        bleedVel += (-150 * (bleedCur - bleedTgt) - cB * bleedVel) * h;
+        bleedCur += bleedVel * h;
+        tensionVel += (-150 * (tensionCur - tensionTgt) - cB * tensionVel) * h;
+        tensionCur += tensionVel * h;
+      }
+      bleedCur = Math.max(0, Math.min(1.1, bleedCur));
+      tensionCur = Math.max(0, Math.min(1, tensionCur));
+      m.el.style.transform = "translate3d(" + (m.x - m.bx) + "px," + (m.y - m.by) + "px,0)" +
+        (m.el === panel && m.dragging ? " scale(1.01)" : "");
+      applyContour(m.el, engEdge, bleedCur);
+      renderBridge();
+      const rest = !m.dragging &&
+        Math.abs(m.x - m.tx) < 0.5 && Math.abs(m.y - m.ty) < 0.5 &&
+        Math.abs(m.vx) < 10 && Math.abs(m.vy) < 10 &&
+        Math.abs(bleedCur - bleedTgt) < 0.01 && Math.abs(tensionCur - tensionTgt) < 0.01;
+      if (rest) {
+        mot = null;
+        busyEls.delete(m.el);
+        m.el.style.willChange = "";
+        if (!snappedEdge && bleedCur < 0.02) engEdge = null;
+        commitMot(m);
+        return;
+      }
+      m.raf = requestAnimationFrame(motStep);
+    };
+    const doSnap = (el, m, edge) => {
+      snappedEdge = edge;
+      anchor.edge = edge;
+      engEdge = edge;
+      bleedTgt = 1;
+      tensionTgt = 0;
+      const fp = flushPos(edge, m.tx, m.ty, el.offsetWidth, el.offsetHeight);
+      m.tx = fp.x;
+      m.ty = fp.y;
+      m.nearEdge = edge;
+      persist();
+    };
+    const dragTick = (el, m, desX, desY, pvx, pvy) => {
+      const now = performance.now();
+      const w = el.offsetWidth, h = el.offsetHeight;
+      if (snappedEdge) {
+        engEdge = snappedEdge;
+        bleedTgt = 1;
+        const fp = flushPos(snappedEdge, desX, desY, w, h);
+        let pull = 0, vPerp = 0;
+        if (snappedEdge === "left") { pull = Math.max(0, desX - fp.x); vPerp = Math.max(0, pvx); }
+        if (snappedEdge === "right") { pull = Math.max(0, fp.x - desX); vPerp = Math.max(0, -pvx); }
+        if (snappedEdge === "top") { pull = Math.max(0, desY - fp.y); vPerp = Math.max(0, pvy); }
+        if (snappedEdge === "bottom") { pull = Math.max(0, fp.y - desY); vPerp = Math.max(0, -pvy); }
+        if (pull + vPerp * 0.055 > TEAR_PULL) {
+          // Capillary rupture: pop free, with a short re-snap lockout.
+          snappedEdge = null;
+          anchor.edge = null;
+          lockoutUntil = now + LOCKOUT_MS;
+          tensionTgt = 0;
+          bleedTgt = 0;
+          engEdge = null;
+          m.tx = desX;
+          m.ty = desY;
+          persist();
           return;
         }
-        st.raf = requestAnimationFrame(step);
-        spring = st;
-      };
-      st.raf = requestAnimationFrame(step);
-      spring = st;
+        const off = reducedMotion() ? 0 : rubber(pull);
+        tensionTgt = reducedMotion() ? 0 : Math.min(1, Math.max(0, (pull - off) / TEAR_PULL));
+        if (snappedEdge === "left") { m.tx = fp.x + off; m.ty = clampAlong(desY, h, window.innerHeight); }
+        if (snappedEdge === "right") { m.tx = fp.x - off; m.ty = clampAlong(desY, h, window.innerHeight); }
+        if (snappedEdge === "top") { m.ty = fp.y + off; m.tx = clampAlong(desX, w, window.innerWidth); }
+        if (snappedEdge === "bottom") { m.ty = fp.y - off; m.tx = clampAlong(desX, w, window.innerWidth); }
+        m.nearEdge = snappedEdge;
+        return;
+      }
+      // Free drag: bleed toward the nearest edge, with a magnetic wetting
+      // pull, and snap commit on proximity + dwell (or a slow hand).
+      const near = nearestEdge(desX, desY, w, h);
+      m.nearEdge = near.edge;
+      engEdge = near.edge;
+      bleedTgt = 1 - smooth(BLEED_FULL, BLEED_NEAR, near.gap);
+      tensionTgt = 0;
+      let tx = desX, ty = desY;
+      const pullIn = bleedTgt * 14;
+      if (near.edge === "left") tx = desX - pullIn;
+      if (near.edge === "right") tx = desX + pullIn;
+      if (near.edge === "top") ty = desY - pullIn;
+      if (near.edge === "bottom") ty = desY + pullIn;
+      if (now >= lockoutUntil && bleedTgt > 0) {
+        if (near.gap <= SNAP_NOW) { doSnap(el, m, near.edge); return; }
+        if (near.gap <= SNAP_ZONE) {
+          if (m.zoneEdge !== near.edge) { m.zoneEdge = near.edge; m.zoneSince = now; }
+          const speed = Math.abs(near.edge === "left" || near.edge === "right" ? pvx : pvy);
+          if (now - m.zoneSince >= 70 || speed < 500) { doSnap(el, m, near.edge); return; }
+        } else {
+          m.zoneEdge = null;
+        }
+      }
+      m.tx = tx;
+      m.ty = ty;
     };
 
     /* ---- drag: header (panel) or the pill itself (dock) ---- */
@@ -856,89 +1131,85 @@
       handle.addEventListener("pointerdown", (e) => {
         if (e.button !== 0) return;
         if (e.target.closest && e.target.closest(".qp-x")) return;
-        // Commit the CURRENT visual spot to left/top before clearing the
-        // transform — otherwise a re-grab mid-spring snaps the element
-        // back to its pre-spring position (the visible blink).
-        const r0 = el.getBoundingClientRect();
-        stopSpring();
-        el.style.left = Math.round(r0.left) + "px";
-        el.style.top = Math.round(r0.top) + "px";
-        el.classList.remove("qp-dragging");
-        el.style.transform = "";
-        busyEls.add(el);
-        const r = el.getBoundingClientRect();
+        const m = motStart(el);
         drag = {
-          id: e.pointerId, sx: e.clientX, sy: e.clientY,
-          bx: r.left, by: r.top, active: false,
+          id: e.pointerId, sx: e.clientX, sy: e.clientY, active: false,
+          gx: e.clientX - m.x, gy: e.clientY - m.y,
           samples: [{ t: performance.now(), x: e.clientX, y: e.clientY }],
         };
         try { handle.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
       });
       handle.addEventListener("pointermove", (e) => {
-        if (!drag || e.pointerId !== drag.id) return;
+        if (!drag || e.pointerId !== drag.id || !mot || mot.el !== el) return;
         const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
         if (!drag.active && Math.hypot(dx, dy) < 3) return;
         if (!drag.active) {
           drag.active = true;
+          mot.dragging = true;
           el.classList.add("qp-dragging");
         }
         drag.samples.push({ t: performance.now(), x: e.clientX, y: e.clientY });
         if (drag.samples.length > 6) drag.samples.shift();
-        el.style.transform = "translate3d(" + dx + "px," + dy + "px,0)" +
-          (el === dock ? "" : " scale(1.01)");
+        const s = drag.samples;
+        let pvx = 0, pvy = 0;
+        if (s.length > 1) {
+          const a = s[0], b = s[s.length - 1], dts = Math.max(1, b.t - a.t) / 1000;
+          pvx = (b.x - a.x) / dts; pvy = (b.y - a.y) / dts;
+        }
+        dragTick(el, mot, e.clientX - drag.gx, e.clientY - drag.gy, pvx, pvy);
       });
       const finish = (e, cancelled) => {
         if (!drag || (e && e.pointerId !== drag.id)) return;
         const wasActive = drag.active;
         const d = drag;
         drag = null;
-        if (!wasActive) { el.classList.remove("qp-dragging"); busyEls.delete(el); return; }
+        if (!mot || mot.el !== el) return;
+        const m = mot;
+        m.dragging = false;
+        el.classList.remove("qp-dragging");
+        if (!wasActive) return;
         if (el === dock) suppressDockClick = true;
-        const dx = e ? e.clientX - d.sx : 0, dy = e ? e.clientY - d.sy : 0;
-        // Release velocity from the last ~100ms of samples.
-        let vx = 0, vy = 0;
         const s = d.samples;
+        let pvx = 0, pvy = 0;
         if (s.length > 1) {
-          const a = s[0], b = s[s.length - 1], dt = Math.max(1, b.t - a.t) / 1000;
-          vx = (b.x - a.x) / dt; vy = (b.y - a.y) / dt;
+          const a = s[0], b = s[s.length - 1], dts = Math.max(1, b.t - a.t) / 1000;
+          pvx = (b.x - a.x) / dts; pvy = (b.y - a.y) / dts;
         }
-        const vw = window.innerWidth, vh = window.innerHeight;
-        const w = el.offsetWidth, h = el.offsetHeight;
-        let tx = d.bx + dx, ty = d.by + dy;
-        // Snap to an edge when close (or flung toward it).
-        if (tx < 56 || (tx < vw / 2 && vx < -500)) tx = MARGIN;
-        else if (tx + w > vw - 56 || (tx > vw / 2 && vx > 500)) tx = vw - w - MARGIN;
-        ty = Math.min(Math.max(ty, 8), Math.max(8, vh - h - 8));
-        tx = Math.min(Math.max(tx, 8), Math.max(8, vw - w - 8));
-        const fromDelta = { x: tx - d.bx, y: ty - d.by };
-        el.style.left = d.bx + "px";
-        el.style.top = d.by + "px";
-        springTo(el, { x: dx, y: dy },
-          cancelled ? { x: 0, y: 0 } : fromDelta,
-          { x: vx, y: vy },
-          (end) => {
-            el.classList.remove("qp-dragging");
-            const fx = (d.bx + end.x) / window.innerWidth;
-            const fy = (d.by + end.y) / window.innerHeight;
-            anchor = { fx, fy };
-            persist();
-            placeAll();
-          });
+        tensionTgt = 0;
+        if (cancelled) { bleedTgt = snappedEdge ? 1 : 0; return; }
+        if (snappedEdge) {
+          const fp = flushPos(snappedEdge, m.x, m.y, el.offsetWidth, el.offsetHeight);
+          m.tx = fp.x;
+          m.ty = fp.y;
+          bleedTgt = 1;
+          return;
+        }
+        if (bleedCur > 0.35 && m.nearEdge) { doSnap(el, m, m.nearEdge); return; }
+        bleedTgt = 0;
+        engEdge = null;
+        // Free rest: clamp into the viewport, carrying a little of the
+        // release velocity so a flick still feels alive.
+        m.vx += pvx * 0.25;
+        m.vy += pvy * 0.25;
+        m.tx = Math.min(Math.max(m.x, 8), Math.max(8, window.innerWidth - el.offsetWidth - 8));
+        m.ty = Math.min(Math.max(m.y, 8), Math.max(8, window.innerHeight - el.offsetHeight - 8));
       };
       handle.addEventListener("pointerup", (e) => finish(e, false));
       handle.addEventListener("pointercancel", (e) => finish(e, true));
       handle.addEventListener("dblclick", () => {
-        stopSpring();
+        motStop(false);
         el.style.transform = "";
         busyEls.delete(el);
-        anchor = { fx: 0.012, fy: 0.30 };
+        snappedEdge = null;
+        bleedCur = 0; bleedTgt = 0; tensionCur = 0; tensionTgt = 0; engEdge = null;
+        anchor = { fx: 0.012, fy: 0.30, edge: null };
         persist();
         placeAll();
       });
     };
 
     const setDocked = (docked) => {
-      stopSpring();
+      motStop(false);
       [panel, dock].forEach((el2) => {
         el2.style.transform = "";
         el2.classList.remove("qp-dragging");
@@ -948,6 +1219,13 @@
       dock.classList.toggle("qp-hidden", !docked);
       dock.setAttribute("aria-expanded", docked ? "false" : "true");
       placeAll();
+      // At a snapped edge, wet the silhouette in so the swap reads liquid.
+      if (snappedEdge) {
+        bleedCur = 0.25;
+        bleedTgt = 1;
+        engEdge = snappedEdge;
+        motStart(activeEl());
+      }
       try { GM_setValue(STORE.docked, docked); } catch (e) { /* noop */ }
     };
     const setDockTotal = (text) => {
