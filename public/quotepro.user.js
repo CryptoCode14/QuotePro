@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.6.0
+// @version      1.7.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -119,14 +119,15 @@
   }
 
   function parseMoney(text) {
-    // Matches $1,234.56 / 1234.56 / $45, and negatives (-59.83, (59.83)) —
-    // the iStore prints credit lines (e.g. a track-mount credit) as plain
-    // negative amounts with no $ sign.
+    // Matches $1,234.56 / 1234.56 / $45. Like QuotePro's parser
+    // (parseNetAmount in ocrParser.ts), the amount is read UNSIGNED:
+    // the app takes "Net Price: -59.83" as +59.83, and the script must
+    // match the software exactly (Weston, 2026-10-20) — so a printed
+    // credit line counts positive here too, deliberately.
     const t = String(text).replace(/[\u2212\u2013]/g, "-");
     const m = t.match(/(-)?\s*\$?\s*(\()?([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{2})|[0-9]+\.[0-9]{2}|[0-9][0-9,]*)(\))?/);
     if (!m) return null;
-    let n = Number(m[3].replace(/[$,\s]/g, ""));
-    if (m[1] || (m[2] && m[4])) n = -n;
+    const n = Number(m[3].replace(/[$,\s]/g, ""));
     return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
   }
 
@@ -134,16 +135,13 @@
   const isPriceFor = (label) => /^\s*PRICE FOR\b/i.test(label || "");
   function isWindowsLabel(label) {
     const t = compact(label);
-    // Negations ("NO WINDOWS", "WITHOUT WINDOWS", "WINDOWLESS") mean no windows:
-    // the iStore prints "SOLID (NO WINDOWS)" on solid doors.
-    if (/\bNO\s+WINDOWS?\b/i.test(label) ||
-        /\bWITHOUT\s+WINDOWS?\b/i.test(label) ||
-        /WINDOWLESS/i.test(label)) return false;
-    const glassWord = /WINDOW|GLASS|GLAZING|LITE|INSERT|FULLVISION|FULLVIEW|VISION/.test(t);
-    // "INSULAT..." alone is insulation (e.g. "PRICE FOR INSULATED"), not
-    // windows — it needs a glass-specific companion word to count.
-    if (/INSULAT/.test(t) && !glassWord) return false;
-    return glassWord;
+    // Mirrors QuotePro's parser (src/lib/ocrParser.ts classifyLabel)
+    // EXACTLY, so the script and the app bucket every card identically:
+    // FV + digit (FV200U = Full Vision glass) is always windows, and the
+    // keyword list includes INSULAT with no companion-word requirement
+    // ("PRICE FOR INSULATED" is the glass price — Weston's ruling).
+    if (/FV\d/.test(t)) return true;
+    return WINDOW_KEYWORDS.some((k) => t.includes(k));
   }
   function isDoorLabel(label) {
     // "PRICE FOR ..." cards are add-ons/options, never the door itself.
@@ -296,7 +294,7 @@
     }
     GM_xmlhttpRequest({
       method: "POST",
-      url: getApiBase() + "/v1/calculate",
+      url: getApiBase() + "/v1/solve",
       headers: {
         "Content-Type": "application/json",
         Authorization: "Bearer " + key,
@@ -701,11 +699,11 @@
       display: flex; flex-direction: row; align-items: center; gap: 11px;
       transition: opacity .2s var(--ease-out), transform .24s var(--ease-drawer), filter .16s ease; }
     .qp-dock::before, .qp-dock::after { display: none; }
-    .qp-dock.qp-dock-v { flex-direction: column; padding: 14px 9px; gap: 9px;
+    .qp-dock.qp-dock-v { flex-direction: column; padding: 12px 7px; gap: 9px;
       box-sizing: border-box; min-height: 148px; justify-content: center; }
     .qp-dock.qp-dock-v .qp-dock-text { align-items: center; }
     .qp-dock.qp-dock-v .qp-dock-label { display: none; }
-    .qp-dock.qp-dock-v .qp-dock-total { font-size: 13px; max-width: 78px; text-align: center; }
+    .qp-dock.qp-dock-v .qp-dock-total { font-size: 12.5px; max-width: 78px; text-align: center; }
     .qp-dock .qp-dock-text { position: relative; z-index: 1; display: flex;
       flex-direction: column; align-items: flex-start; gap: 2px; }
     .qp-dock:hover { filter: brightness(1.1); }
@@ -811,9 +809,24 @@
     skin.appendChild(skinPath);
     dock.appendChild(skin);
     // Orientation follows the wall: the bar stands vertical on the side
-    // edges, lies horizontal on the top/bottom edges and when free.
+    // edges, lies horizontal on the top/bottom edges and when free. The
+    // vertical form is the SAME bar rotated: its length along the wall
+    // is the width the horizontal bar just had (tracked in dockLenH),
+    // so depth and width read identically in both orientations instead
+    // of the vertical collapsing into a squarish tab.
+    let dockVertical = false;
+    let dockLenH = 0;
     const setDockOrient = (edge) => {
-      dock.classList.toggle("qp-dock-v", edge === "left" || edge === "right");
+      const v = edge === "left" || edge === "right";
+      if (v === dockVertical) return;
+      dockVertical = v;
+      if (v) {
+        dock.classList.add("qp-dock-v");
+        if (dockLenH >= 100) dock.style.height = dockLenH + "px";
+      } else {
+        dock.classList.remove("qp-dock-v");
+        dock.style.height = "";
+      }
     };
     const dockMark = document.createElement("span");
     dockMark.className = "qp-dock-mark";
@@ -984,7 +997,10 @@
     };
     const place = (el) => {
       if (busyEls.has(el)) return;
-      if (el === dock) setDockOrient(snappedEdge);
+      if (el === dock) {
+        setDockOrient(snappedEdge);
+        if (!dockVertical && dock.offsetWidth >= 100) dockLenH = dock.offsetWidth;
+      }
       const vw = window.innerWidth, vh = window.innerHeight;
       const w = el.offsetWidth || 60, h = el.offsetHeight || 60;
       let p;
@@ -1296,7 +1312,11 @@
           bleedTgt = 1;
           return;
         }
-        if (bleedCur > 0.35 && m.nearEdge) { doSnap(el, m, m.nearEdge); return; }
+        // Snap-in on release only when the goo is engaged AND no fresh
+        // rupture is inside its re-snap lockout — otherwise a fast yank
+        // off the wall (rupture, release within ~250ms, bleed not yet
+        // decayed) snapped the element straight back to the wall.
+        if (performance.now() >= lockoutUntil && bleedCur > 0.35 && m.nearEdge) { doSnap(el, m, m.nearEdge); return; }
         bleedTgt = 0;
         engEdge = null;
         // Free rest: spring to the DROP point (where the pointer let go),
@@ -1429,7 +1449,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v1.6.0";
+    verEl.textContent = "QuotePro browser tool v1.7.0";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
@@ -1492,9 +1512,9 @@
       const label = (best.innerText || "").replace(/\s+/g, " ").replace(/[\u2212\u2013]/g, "-").trim();
       const m = label.match(/net price:\s*\$?\s*(-)?\s*(\()?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+\.[0-9]{2})(\)?)/i);
       if (!m) continue;
-      let amount = Number(m[3].replace(/,/g, ""));
-      if (m[1] || (m[2] && m[4])) amount = -amount;
-      // Credits are real lines (negative Net Price); only $0 lines are noise.
+      const amount = Number(m[3].replace(/,/g, ""));
+      // Read UNSIGNED, mirroring QuotePro's parser exactly (the app
+      // takes a printed credit like -59.83 as +59.83); only $0 is noise.
       if (!Number.isFinite(amount) || amount === 0) continue;
       items.push({ label, amount });
     }
@@ -2060,7 +2080,7 @@
 
     const calcBtn = document.createElement("button");
     calcBtn.className = "qp-btn";
-    calcBtn.textContent = "Calculate";
+    calcBtn.textContent = "Solve Pricing";
     body.appendChild(calcBtn);
 
     const res = document.createElement("div");
@@ -2101,17 +2121,24 @@
         installation: payload.installation, fuel: payload.fuel,
       });
       calcBtn.disabled = true;
-      calcBtn.textContent = "Calculating\u2026";
+      calcBtn.textContent = "Solving\u2026";
       apiCalculate(
         payload,
         (data) => {
           calcBtn.disabled = false;
-          calcBtn.textContent = "Calculate";
+          calcBtn.textContent = "Solve Pricing";
+          // Solve owns installation/fuel (the app's solver overwrites
+          // them too): show what it set, save it with the result.
+          if (typeof data.installation === "number") instIn.value = String(data.installation);
+          if (typeof data.fuel === "number") fuelIn.value = String(data.fuel);
           GM_setValue(STORE.lastResult, {
             dealer_cost_total: data.dealer_cost_total,
             double_cost: data.double_cost,
             final_price: data.final_price,
             margin: data.margin,
+            installation: data.installation,
+            fuel: data.fuel,
+            gap: data.gap,
             at: Date.now(),
             texts: estTexts.getTexts(),
           });
@@ -2120,7 +2147,7 @@
         },
         (msg) => {
           calcBtn.disabled = false;
-          calcBtn.textContent = "Calculate";
+          calcBtn.textContent = "Solve Pricing";
           showError(body, msg);
         }
       );
@@ -2149,8 +2176,12 @@
       { k: "Dealer cost total", v: data.dealer_cost_total, raw: data.dealer_cost_total, cls: "" },
       { k: "Double-cost check", v: data.double_cost, raw: data.double_cost, cls: "" },
       { k: "Final price", v: data.final_price, raw: data.final_price, cls: "qp-final" },
-      { k: "Margin", v: data.margin, raw: data.margin, cls: "" },
+      { k: "Margin", v: data.margin, raw: data.margin, cls: "", pct: true },
     ];
+    if (typeof data.installation === "number")
+      rows.push({ k: "Installation (solved)", v: data.installation, raw: data.installation, cls: "" });
+    if (typeof data.fuel === "number")
+      rows.push({ k: "Fuel & travel (solved)", v: data.fuel, raw: data.fuel, cls: "" });
     rows.forEach((r) => {
       const div = document.createElement("div");
       div.className = "qp-rrow";
@@ -2160,7 +2191,9 @@
       const right = document.createElement("span");
       const val = document.createElement("span");
       val.className = "qp-v " + r.cls;
-      val.textContent = fmt$(r.v);
+      val.textContent = r.pct
+        ? (Math.round(Number(r.v) * 10) / 10).toString().replace(/\.0$/, "") + "%"
+        : fmt$(r.v);
       const cp = document.createElement("button");
       cp.className = "qp-copy";
       cp.textContent = "Copy";
