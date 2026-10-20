@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.4.0
+// @version      1.4.1
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -449,7 +449,7 @@
     const hasTrack = /FLAG|JAMB|BRACKET|ANGLE|\bTRACK\b|MOUNT/i.test(rest);
     if (!sizeM && !hasTrack) return "";
     const size = sizeM ? sizeM[1] : "2";
-    if (/REVERSE\s+ANGLE|\bRA\s+BRACKET/i.test(rest)) return size + '" Reverse Angle Track';
+    if (/REVERSE\s+ANGLE|\bRA\s+BRACKET|\bRA\s+TRACK\b/i.test(rest)) return size + '" Reverse Angle Track';
     if (/CONTINUOUS\s+ANGLE|\bCA\s+BRACKET|\bCA\s+TRACK\b/i.test(rest)) return size + '" Continuous Angle Track';
     return size + '" Track';
   }
@@ -635,6 +635,8 @@
       transition: transform .12s var(--ease-out), color .12s ease; }
     .qp-head .qp-x:hover { color: #fff; }
     .qp-head .qp-x:active { transform: scale(.94); }
+    .qp-ver { position: relative; z-index: 1; padding: 2px 14px 10px; font-size: 10px;
+      letter-spacing: .05em; color: #71757d; text-align: right; }
     .qp-body { position: relative; z-index: 1; padding: 14px; overflow-y: auto; flex: 1;
       scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.16) transparent; }
     .qp-body::-webkit-scrollbar { width: 8px; }
@@ -978,8 +980,15 @@
       m.el.style.top = Math.round(m.y) + "px";
       m.el.style.transform = "";
       m.el.classList.remove("qp-dragging");
-      anchor = { fx: m.x / window.innerWidth, fy: m.y / window.innerHeight, edge: snappedEdge };
-      persist();
+      // Only a motion that actually travelled may rewrite the shared
+      // anchor. A plain click (or the expand/collapse wet-in) rests at
+      // the element's own clamped spot; writing that back would drag
+      // the OTHER element to it — the pill crept up to the panel's top
+      // after a mere header click in v1.4.0.
+      if (m.moved) {
+        anchor = { fx: m.x / window.innerWidth, fy: m.y / window.innerHeight, edge: snappedEdge };
+        persist();
+      }
       placeAll();
     };
     const motStop = (commit) => {
@@ -1001,7 +1010,7 @@
       const m = {
         el: el, bx: r.left, by: r.top,
         x: r.left, y: r.top, vx: 0, vy: 0, tx: r.left, ty: r.top,
-        dragging: false, last: performance.now(), raf: 0,
+        dragging: false, moved: false, last: performance.now(), raf: 0,
         zoneEdge: null, zoneSince: 0, nearEdge: null,
       };
       mot = m;
@@ -1064,7 +1073,8 @@
       m.nearEdge = edge;
       persist();
     };
-    const dragTick = (el, m, desX, desY, pvx, pvy) => {
+    const dragTick = (el, m, desX, desY, pvx, pvy, px, py) => {
+      m.moved = true;
       const now = performance.now();
       const w = el.offsetWidth, h = el.offsetHeight;
       if (snappedEdge) {
@@ -1099,8 +1109,19 @@
         return;
       }
       // Free drag: bleed toward the nearest edge, with a magnetic wetting
-      // pull, and snap commit on proximity + dwell (or a slow hand).
-      const near = nearestEdge(desX, desY, w, h);
+      // pull, and snap commit on proximity + dwell (or a slow hand). An
+      // edge only engages when the pointer is in that edge's half of the
+      // screen — a nearly viewport-tall panel dragged horizontally by its
+      // header otherwise "snaps" to the bottom edge it happens to span.
+      const vw2 = window.innerWidth, vh2 = window.innerHeight;
+      const cands = [
+        ["left", desX, px < vw2 / 2], ["right", vw2 - (desX + w), px >= vw2 / 2],
+        ["top", desY, py < vh2 / 2], ["bottom", vh2 - (desY + h), py >= vh2 / 2],
+      ].filter((c) => c[2]);
+      cands.sort((a, b) => a[1] - b[1]);
+      const near = cands.length
+        ? { edge: cands[0][0], gap: Math.max(0, cands[0][1]) }
+        : nearestEdge(desX, desY, w, h);
       m.nearEdge = near.edge;
       engEdge = near.edge;
       bleedTgt = 1 - smooth(BLEED_FULL, BLEED_NEAR, near.gap);
@@ -1131,10 +1152,11 @@
       handle.addEventListener("pointerdown", (e) => {
         if (e.button !== 0) return;
         if (e.target.closest && e.target.closest(".qp-x")) return;
+        if (el === dock) suppressDockClick = false;
         const m = motStart(el);
         drag = {
           id: e.pointerId, sx: e.clientX, sy: e.clientY, active: false,
-          gx: e.clientX - m.x, gy: e.clientY - m.y,
+          gx: e.clientX - m.x, gy: e.clientY - m.y, pvx: 0, pvy: 0,
           samples: [{ t: performance.now(), x: e.clientX, y: e.clientY }],
         };
         try { handle.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
@@ -1148,15 +1170,23 @@
           mot.dragging = true;
           el.classList.add("qp-dragging");
         }
-        drag.samples.push({ t: performance.now(), x: e.clientX, y: e.clientY });
-        if (drag.samples.length > 6) drag.samples.shift();
+        // Pointer velocity over a trailing window of at least ~40ms.
+        // Shorter spans (a first move landing 1-2ms after the press, or a
+        // 1000Hz mouse) make the instantaneous velocity explode, which
+        // falsely ruptured the tear-away in v1.4.0's first build.
+        const nowMs = performance.now();
+        drag.samples.push({ t: nowMs, x: e.clientX, y: e.clientY });
+        while (drag.samples.length > 2 && nowMs - drag.samples[0].t > 150) drag.samples.shift();
         const s = drag.samples;
-        let pvx = 0, pvy = 0;
         if (s.length > 1) {
-          const a = s[0], b = s[s.length - 1], dts = Math.max(1, b.t - a.t) / 1000;
-          pvx = (b.x - a.x) / dts; pvy = (b.y - a.y) / dts;
+          const a = s[0], b = s[s.length - 1], span = b.t - a.t;
+          if (span >= 40) {
+            drag.pvx = (b.x - a.x) / (span / 1000);
+            drag.pvy = (b.y - a.y) / (span / 1000);
+          }
         }
-        dragTick(el, mot, e.clientX - drag.gx, e.clientY - drag.gy, pvx, pvy);
+        dragTick(el, mot, e.clientX - drag.gx, e.clientY - drag.gy,
+          drag.pvx || 0, drag.pvy || 0, e.clientX, e.clientY);
       });
       const finish = (e, cancelled) => {
         if (!drag || (e && e.pointerId !== drag.id)) return;
@@ -1169,16 +1199,15 @@
         el.classList.remove("qp-dragging");
         if (!wasActive) return;
         if (el === dock) suppressDockClick = true;
-        const s = d.samples;
-        let pvx = 0, pvy = 0;
-        if (s.length > 1) {
-          const a = s[0], b = s[s.length - 1], dts = Math.max(1, b.t - a.t) / 1000;
-          pvx = (b.x - a.x) / dts; pvy = (b.y - a.y) / dts;
-        }
+        const pvx = d.pvx || 0, pvy = d.pvy || 0;
         tensionTgt = 0;
         if (cancelled) { bleedTgt = snappedEdge ? 1 : 0; return; }
         if (snappedEdge) {
-          const fp = flushPos(snappedEdge, m.x, m.y, el.offsetWidth, el.offsetHeight);
+          // Re-seat flush, with the along-edge coordinate taken from the
+          // drop point (not the spring's lagging position).
+          let ax = m.x, ay = m.y;
+          if (e) { ax = e.clientX - d.gx; ay = e.clientY - d.gy; }
+          const fp = flushPos(snappedEdge, ax, ay, el.offsetWidth, el.offsetHeight);
           m.tx = fp.x;
           m.ty = fp.y;
           bleedTgt = 1;
@@ -1187,12 +1216,17 @@
         if (bleedCur > 0.35 && m.nearEdge) { doSnap(el, m, m.nearEdge); return; }
         bleedTgt = 0;
         engEdge = null;
-        // Free rest: clamp into the viewport, carrying a little of the
-        // release velocity so a flick still feels alive.
+        // Free rest: spring to the DROP point (where the pointer let go),
+        // clamped into the viewport, carrying a little of the release
+        // velocity so a flick still feels alive. v1.4.0 targeted the
+        // spring's current lagging position instead, so every drag died
+        // short of the drop point and felt unresponsive.
         m.vx += pvx * 0.25;
         m.vy += pvy * 0.25;
-        m.tx = Math.min(Math.max(m.x, 8), Math.max(8, window.innerWidth - el.offsetWidth - 8));
-        m.ty = Math.min(Math.max(m.y, 8), Math.max(8, window.innerHeight - el.offsetHeight - 8));
+        let rx = m.x, ry = m.y;
+        if (e) { rx = e.clientX - d.gx; ry = e.clientY - d.gy; }
+        m.tx = Math.min(Math.max(rx, 8), Math.max(8, window.innerWidth - el.offsetWidth - 8));
+        m.ty = Math.min(Math.max(ry, 8), Math.max(8, window.innerHeight - el.offsetHeight - 8));
       };
       handle.addEventListener("pointerup", (e) => finish(e, false));
       handle.addEventListener("pointercancel", (e) => finish(e, true));
@@ -1258,6 +1292,12 @@
     shadow.addEventListener("keydown", (e) => {
       if (e.key === "Escape") setDocked(true);
     });
+    // Tiny version tag at the panel's foot: makes "am I on the latest
+    // build?" answerable at a glance.
+    const verEl = document.createElement("div");
+    verEl.className = "qp-ver";
+    verEl.textContent = "QuotePro browser tool v1.4.1";
+    panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
     return { host, body: panel.querySelector(".qp-body"), setDocked, setDockTotal };
