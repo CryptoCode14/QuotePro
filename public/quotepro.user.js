@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.5.0
+// @version      1.6.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -695,7 +695,7 @@
     .qp-copy:active { transform: scale(.96); }
     .qp-ok { color: #7ee2a8; font-size: 12px; margin-top: 6px; display: none; }
     .qp-dock { position: fixed; z-index: 2147483647; isolation: isolate;
-      padding: 10px 16px 10px 10px; border-radius: 16px; overflow: visible;
+      padding: 10px 16px 10px 10px; border-radius: 22px; overflow: visible;
       background: transparent; box-shadow: none;
       cursor: grab; user-select: none; touch-action: none;
       display: flex; flex-direction: row; align-items: center; gap: 11px;
@@ -712,7 +712,7 @@
     .qp-dock:active { cursor: grabbing; }
     .qp-dock.qp-hidden { opacity: 0; transform: scale(.9); pointer-events: none; }
     .qp-dock .qp-dock-mark { position: relative; z-index: 1; width: 40px; height: 40px;
-      border-radius: 12px; flex-shrink: 0; background: #fff; overflow: hidden;
+      border-radius: 14px; flex-shrink: 0; background: #fff; overflow: hidden;
       display: flex; align-items: center; justify-content: center;
       box-shadow: 0 0 0 1px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.9),
         inset 0 -1px 0 rgba(0,0,0,.08), 0 3px 10px rgba(0,0,0,.35); }
@@ -730,6 +730,15 @@
     .qp-dock .qp-dock-total { position: relative; z-index: 1; font-size: 15px; font-weight: 700;
       color: #7ee2a8; font-variant-numeric: tabular-nums; max-width: 130px; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; line-height: 1.15; }
+    .qp-dock .qp-dock-totalrow { position: relative; z-index: 1; display: flex;
+      flex-direction: row; align-items: baseline; gap: 7px; }
+    .qp-dock .qp-dock-margin { font-size: 10px; font-weight: 600; white-space: nowrap;
+      color: rgba(126,226,168,.72); font-variant-numeric: tabular-nums; }
+    .qp-dock .qp-dock-sub { position: relative; z-index: 1; font-size: 10.5px;
+      color: #9aa0ab; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 178px; line-height: 1.25; }
+    .qp-dock.qp-dock-v .qp-dock-margin, .qp-dock.qp-dock-v .qp-dock-sub { display: none; }
+    .qp-dock.qp-dock-v .qp-dock-totalrow { justify-content: center; }
     .qp-skin { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;
       overflow: visible;
       filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)) drop-shadow(0 16px 28px rgba(0,0,0,.38)); }
@@ -786,7 +795,7 @@
     const skinGrad = document.createElementNS(svgNS, "linearGradient");
     skinGrad.setAttribute("id", "qpMetalSkin");
     skinGrad.setAttribute("gradientUnits", "userSpaceOnUse");
-    [["0", "#26282c"], ["0.55", "#1b1c1f"], ["1", "#151619"]].forEach((pair) => {
+    [["0", "#2b2d31"], ["0.55", "#1d1e21"], ["1", "#17181a"]].forEach((pair) => {
       const stop = document.createElementNS(svgNS, "stop");
       stop.setAttribute("offset", pair[0]);
       stop.setAttribute("stop-color", pair[1]);
@@ -797,7 +806,7 @@
     const skinPath = document.createElementNS(svgNS, "path");
     skinPath.setAttribute("class", "qp-skin-path");
     skinPath.setAttribute("fill", "url(#qpMetalSkin)");
-    skinPath.setAttribute("stroke", "rgba(255,255,255,.09)");
+    skinPath.setAttribute("stroke", "rgba(255,255,255,.12)");
     skinPath.setAttribute("stroke-width", "1");
     skin.appendChild(skinPath);
     dock.appendChild(skin);
@@ -819,10 +828,21 @@
     const dockTotal = document.createElement("span");
     dockTotal.className = "qp-dock-total";
     dockTotal.style.display = "none";
+    const dockMargin = document.createElement("span");
+    dockMargin.className = "qp-dock-margin";
+    dockMargin.style.display = "none";
+    const dockTotalRow = document.createElement("span");
+    dockTotalRow.className = "qp-dock-totalrow";
+    dockTotalRow.appendChild(dockTotal);
+    dockTotalRow.appendChild(dockMargin);
+    const dockSub = document.createElement("span");
+    dockSub.className = "qp-dock-sub";
+    dockSub.style.display = "none";
     const dockText = document.createElement("span");
     dockText.className = "qp-dock-text";
     dockText.appendChild(dockLabel);
-    dockText.appendChild(dockTotal);
+    dockText.appendChild(dockTotalRow);
+    dockText.appendChild(dockSub);
     dock.appendChild(dockMark);
     dock.appendChild(dockText);
     shadow.appendChild(dock);
@@ -876,7 +896,7 @@
        the user sees is the dock's own outline. */
     const SKIN_PAD = 170;
     const skinPathD = (w, h, edge, gap, bleed, tension) => {
-      const P = SKIN_PAD, R = 16;
+      const P = SKIN_PAD, R = 22;
       const n = (v) => Math.round(v * 10) / 10;
       const rrect = () =>
         "M " + n(P + R) + " " + P + " L " + n(P + w - R) + " " + P +
@@ -1103,8 +1123,16 @@
       }
       m.raf = requestAnimationFrame(motStep);
     };
-    const doSnap = (el, m, edge) => {
+    const doSnap = (el, m, edge, baseX, baseY) => {
       if (el === dock) setDockOrient(edge);
+      // Tear pull is measured from THIS baseline (the desired position
+      // at the snap), not from the flush point: when the dock swaps
+      // orientation at a side wall its width changes (254px horizontal
+      // -> 77px vertical), the flush point jumps, and measuring from
+      // flush read that jump as a >100px pull — the snap ruptured
+      // itself on the very next tick (right edge, v1.6.0 gate).
+      m.baseDesX = typeof baseX === "number" ? baseX : m.tx;
+      m.baseDesY = typeof baseY === "number" ? baseY : m.ty;
       snappedEdge = edge;
       anchor.edge = edge;
       engEdge = edge;
@@ -1125,10 +1153,16 @@
         bleedTgt = 1;
         const fp = flushPos(snappedEdge, desX, desY, w, h);
         let pull = 0, vPerp = 0;
-        if (snappedEdge === "left") { pull = Math.max(0, desX - fp.x); vPerp = Math.max(0, pvx); }
-        if (snappedEdge === "right") { pull = Math.max(0, fp.x - desX); vPerp = Math.max(0, -pvx); }
-        if (snappedEdge === "top") { pull = Math.max(0, desY - fp.y); vPerp = Math.max(0, pvy); }
-        if (snappedEdge === "bottom") { pull = Math.max(0, fp.y - desY); vPerp = Math.max(0, -pvy); }
+        // A fresh grab of an already-docked element has no baseline yet
+        // (the motion object is new): baseline = where this grab's drag
+        // began, so pull is always "how far THIS gesture has pulled".
+        if (typeof m.baseDesX !== "number") { m.baseDesX = desX; m.baseDesY = desY; }
+        const bx = m.baseDesX;
+        const by = m.baseDesY;
+        if (snappedEdge === "left") { pull = Math.max(0, desX - bx); vPerp = Math.max(0, pvx); }
+        if (snappedEdge === "right") { pull = Math.max(0, bx - desX); vPerp = Math.max(0, -pvx); }
+        if (snappedEdge === "top") { pull = Math.max(0, desY - by); vPerp = Math.max(0, pvy); }
+        if (snappedEdge === "bottom") { pull = Math.max(0, by - desY); vPerp = Math.max(0, -pvy); }
         if (pull + vPerp * 0.055 > TEAR_PULL) {
           // Capillary rupture: pop free, with a short re-snap lockout.
           snappedEdge = null;
@@ -1137,6 +1171,8 @@
           tensionTgt = 0;
           bleedTgt = 0;
           engEdge = null;
+          m.baseDesX = null;
+          m.baseDesY = null;
           if (el === dock) setDockOrient(null);
           m.tx = desX;
           m.ty = desY;
@@ -1177,11 +1213,11 @@
       if (near.edge === "top") ty = desY - pullIn;
       if (near.edge === "bottom") ty = desY + pullIn;
       if (now >= lockoutUntil && bleedTgt > 0) {
-        if (near.gap <= SNAP_NOW) { doSnap(el, m, near.edge); return; }
+        if (near.gap <= SNAP_NOW) { doSnap(el, m, near.edge, desX, desY); return; }
         if (near.gap <= SNAP_ZONE) {
           if (m.zoneEdge !== near.edge) { m.zoneEdge = near.edge; m.zoneSince = now; }
           const speed = Math.abs(near.edge === "left" || near.edge === "right" ? pvx : pvy);
-          if (now - m.zoneSince >= 70 || speed < 500) { doSnap(el, m, near.edge); return; }
+          if (now - m.zoneSince >= 70 || speed < 500) { doSnap(el, m, near.edge, desX, desY); return; }
         } else {
           m.zoneEdge = null;
         }
@@ -1198,6 +1234,8 @@
         if (e.target.closest && e.target.closest(".qp-x")) return;
         if (el === dock) suppressDockClick = false;
         const m = motStart(el, true);
+        m.baseDesX = null;
+        m.baseDesY = null;
         drag = {
           id: e.pointerId, sx: e.clientX, sy: e.clientY, active: false,
           gx: e.clientX - m.x, gy: e.clientY - m.y, pvx: 0, pvy: 0,
@@ -1322,13 +1360,34 @@
     // total on ServiceTitan even when that tab was already open — and
     // nothing else (least of all the iStore dealer-cost field sum, which
     // used to stomp the dock with $0.00 at build) may overwrite it.
-    let dockTotalShown;
+    let dockTotalShown, dockSubShown, dockMarginShown;
     const syncDockTotal = () => {
       const last = getLastResult();
-      const txt = last && typeof last.final_price === "number" ? fmt$(last.final_price) : null;
+      const has = !!(last && typeof last.final_price === "number");
+      const txt = has ? fmt$(last.final_price) : null;
       if (txt !== dockTotalShown) {
         dockTotalShown = txt;
         setDockTotal(txt);
+      }
+      // Secondary readouts, same source: the margin beside the total,
+      // and the quote's estimate title under it — the bar now says
+      // WHICH quote this is and what it earns, not just the number.
+      // (Hidden in the vertical orientation, which stays minimal.)
+      const mar = has && typeof last.margin === "number"
+        ? (Math.round(last.margin * 10) / 10).toString().replace(/\.0$/, "") + "% margin" : "";
+      if (mar !== dockMarginShown) {
+        dockMarginShown = mar;
+        dockMargin.textContent = mar;
+        dockMargin.style.display = mar ? "" : "none";
+        place(dock);
+      }
+      const sub = has && last.texts && last.texts.title ? String(last.texts.title) : "";
+      if (sub !== dockSubShown) {
+        dockSubShown = sub;
+        dockSub.textContent = sub;
+        dockSub.title = sub;
+        dockSub.style.display = sub ? "" : "none";
+        place(dock);
       }
     };
     syncDockTotal();
@@ -1370,11 +1429,11 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v1.5.0";
+    verEl.textContent = "QuotePro browser tool v1.6.0";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
-    return { host, body: panel.querySelector(".qp-body"), setDocked, setDockTotal };
+    return { host, body: panel.querySelector(".qp-body"), setDocked, setDockTotal, syncDockTotal };
   }
 
   function labeledInput(body, label, name, value, guess) {
@@ -1847,7 +1906,7 @@
   }
 
   function initIStore() {
-    const { body, setDockTotal } = makePanel("QuotePro \u2014 Quick Estimate");
+    const { body, setDockTotal, syncDockTotal } = makePanel("QuotePro \u2014 Quick Estimate");
 
     // API key manager — always visible so the key can be set or changed.
     // (Previously it vanished for good once saved, which looked like a bug.)
@@ -2056,7 +2115,7 @@
             at: Date.now(),
             texts: estTexts.getTexts(),
           });
-          setDockTotal(fmt$(data.final_price));
+          syncDockTotal();
           renderResults(res, data, okMsg);
         },
         (msg) => {
