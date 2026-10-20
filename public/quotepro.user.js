@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.2.0
+// @version      1.3.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -97,6 +97,7 @@
     lastResult: "qp_last_result",
     fieldMap: "qp_field_map",
     docked: "qp_docked",
+    pos: "qp_pos",
   };
 
   /* -------------------------------- utils -------------------------------- */
@@ -554,75 +555,169 @@
   }
 
   /* ------------------------------- panel UI ------------------------------- */
+  // v1.3.0 shell: machined-metal floating panel + dock, per the design
+  // research in ~/workspace/research_notes/premium-floating-dock-ui-20261020-1630.
+  // One light source from the top, hairline ring shadows instead of borders,
+  // brushing + grain texture, Inter with a system fallback stack, tabular
+  // numerals, strong ease-out curves, spring snap on drag release.
+  const NOISE_URI = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E";
   const PANEL_CSS = `
-    .qp-panel { position: fixed; z-index: 2147483647; width: 320px; max-height: 82vh;
-      overflow-y: auto; background: #16181d; color: #e8eaed; border: 1px solid #2e323a;
-      border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.55);
-      font: 13px/1.45 -apple-system, "Segoe UI", Roboto, sans-serif; }
-    .qp-head { display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 12px; cursor: move; background: #1e2127; border-radius: 12px 12px 0 0;
-      border-bottom: 1px solid #2e323a; user-select: none; }
-    .qp-head b { font-size: 13px; letter-spacing: .02em; }
-    .qp-head .qp-x { cursor: pointer; border: 0; background: #2a2e36; color: #cfd3da;
-      width: 22px; height: 22px; border-radius: 50%; font-size: 12px; line-height: 1; }
-    .qp-body { padding: 12px; }
+    .qp-panel, .qp-dock {
+      --ease-out: cubic-bezier(.23,1,.32,1);
+      --ease-drawer: cubic-bezier(.32,.72,0,1);
+      font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+      color: rgba(255,255,255,.92);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,0) 38%),
+        linear-gradient(180deg, #26282c 0%, #1b1c1f 55%, #151619 100%);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,.08),
+        inset 0 1px 0 rgba(255,255,255,.10),
+        inset 0 -1px 0 rgba(0,0,0,.55),
+        inset 0 12px 24px -12px rgba(255,255,255,.05),
+        inset 0 -18px 28px -18px rgba(0,0,0,.6),
+        0 1px 2px rgba(0,0,0,.45),
+        0 8px 16px rgba(0,0,0,.38),
+        0 24px 56px -12px rgba(0,0,0,.55);
+    }
+    .qp-panel::before, .qp-dock::before {
+      content: ""; position: absolute; inset: 0; border-radius: inherit;
+      pointer-events: none; z-index: 0;
+      background: repeating-linear-gradient(90deg,
+        rgba(255,255,255,.016) 0 1px, rgba(0,0,0,.016) 1px 2px);
+      background-size: 2px 100%;
+    }
+    .qp-panel::after, .qp-dock::after {
+      content: ""; position: absolute; inset: 0; border-radius: inherit;
+      pointer-events: none; z-index: 0; opacity: .045; mix-blend-mode: overlay;
+      background-image: url("${NOISE_URI}"); background-size: 180px 180px;
+    }
+    .qp-panel { position: fixed; z-index: 2147483647; width: 328px; max-height: 86vh;
+      border-radius: 20px; display: flex; flex-direction: column; overflow: hidden;
+      isolation: isolate; font-size: 13px; line-height: 1.45;
+      transition: opacity .22s var(--ease-out), transform .28s var(--ease-drawer); }
+    .qp-panel.qp-min { opacity: 0; transform: scale(.96); pointer-events: none; }
+    .qp-panel.qp-dragging, .qp-dock.qp-dragging { transition: none; }
+    .qp-panel.qp-dragging { box-shadow:
+        0 0 0 1px rgba(255,255,255,.10),
+        inset 0 1px 0 rgba(255,255,255,.12),
+        inset 0 -1px 0 rgba(0,0,0,.55),
+        0 2px 4px rgba(0,0,0,.5),
+        0 16px 32px rgba(0,0,0,.45),
+        0 40px 80px -12px rgba(0,0,0,.6); }
+    .qp-head { position: relative; z-index: 1; display: flex; align-items: center;
+      padding: 11px 12px 11px 10px; cursor: grab; user-select: none; touch-action: none;
+      border-bottom: 1px solid rgba(255,255,255,.06); }
+    .qp-head:active { cursor: grabbing; }
+    .qp-grip { flex: 0 0 auto; width: 12px; height: 20px; margin-right: 9px; opacity: .45;
+      background-image: radial-gradient(circle, rgba(255,255,255,.5) 1px, transparent 1.4px);
+      background-size: 5px 5px; background-position: 1px 2px; }
+    .qp-head b { flex: 1; font-size: 13px; font-weight: 600; letter-spacing: -.011em;
+      color: rgba(255,255,255,.92); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .qp-head .qp-x { flex: 0 0 auto; cursor: pointer; border: 0; width: 24px; height: 24px;
+      border-radius: 50%; font-size: 13px; line-height: 1; color: rgba(255,255,255,.75);
+      background: linear-gradient(180deg, #34363b, #26282c);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.12),
+        inset 0 -1px 0 rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.4);
+      transition: transform .12s var(--ease-out), color .12s ease; }
+    .qp-head .qp-x:hover { color: #fff; }
+    .qp-head .qp-x:active { transform: scale(.94); }
+    .qp-body { position: relative; z-index: 1; padding: 14px; overflow-y: auto; flex: 1;
+      scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.16) transparent; }
+    .qp-body::-webkit-scrollbar { width: 8px; }
+    .qp-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
+    .qp-body::-webkit-scrollbar-track { background: transparent; }
     .qp-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-    .qp-row label { flex: 0 0 92px; color: #9aa0ab; font-size: 12px; }
-    .qp-row input { flex: 1; min-width: 0; background: #0f1114; border: 1px solid #2e323a;
-      color: #e8eaed; border-radius: 8px; padding: 7px 9px; font-size: 13px; }
-    .qp-row input:focus { outline: none; border-color: #2f6fed;
-      box-shadow: 0 0 0 2px rgba(47,111,237,.25); }
-    .qp-row input:focus { outline: none; border-color: #4f7ccf; }
-    .qp-row input.qp-guess { border-color: #8a6d1f; }
-    .qp-note { font-size: 11px; color: #8b9099; margin: 6px 0 10px; }
-    .qp-btn { width: 100%; border: 0; border-radius: 9px; padding: 10px; font-size: 13px;
-      font-weight: 600; cursor: pointer; background: #2f6fed; color: #fff; margin-bottom: 8px; }
-    .qp-btn:hover { background: #3b7bf5; }
-    .qp-btn.qp-secondary { background: #24282f; color: #dfe3e8; border: 1px solid #343a44; }
-    .qp-btn.qp-secondary:hover { background: #2b3038; }
+    .qp-row label { flex: 0 0 92px; color: rgba(255,255,255,.55); font-size: 10.5px;
+      font-weight: 600; letter-spacing: .09em; text-transform: uppercase; }
+    .qp-row input, .qp-row select { flex: 1; min-width: 0; border: 0; border-radius: 10px;
+      background: linear-gradient(180deg, #101112, #141518); color: rgba(255,255,255,.92);
+      box-shadow: inset 0 1px 3px rgba(0,0,0,.7), inset 0 -1px 0 rgba(255,255,255,.05),
+        0 0 0 1px rgba(255,255,255,.05);
+      padding: 8px 10px; font: inherit; font-size: 13px; font-weight: 500;
+      font-variant-numeric: tabular-nums; }
+    .qp-row input:focus, .qp-row select:focus { outline: none;
+      box-shadow: inset 0 1px 3px rgba(0,0,0,.7), inset 0 -1px 0 rgba(255,255,255,.05),
+        0 0 0 1px rgba(96,150,255,.65), 0 0 0 4px rgba(47,111,237,.20); }
+    .qp-row input.qp-guess { box-shadow: inset 0 1px 3px rgba(0,0,0,.7),
+      inset 0 -1px 0 rgba(255,255,255,.05), 0 0 0 1px rgba(230,180,60,.55); }
+    .qp-note { font-size: 11.5px; color: rgba(255,255,255,.45); margin: 6px 0 10px; }
+    .qp-btn { width: 100%; border: 0; border-radius: 11px; padding: 11px; font: inherit;
+      font-size: 13.5px; font-weight: 600; letter-spacing: -.006em; cursor: pointer;
+      color: #fff; margin-bottom: 8px;
+      background: linear-gradient(180deg, #3d7bf0, #2f6fed 55%, #2a63d8);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.28),
+        inset 0 -1px 0 rgba(0,0,0,.35), 0 2px 10px rgba(47,111,237,.35);
+      transition: transform .12s var(--ease-out), filter .14s ease, box-shadow .14s ease; }
+    .qp-btn:hover { filter: brightness(1.07); }
+    .qp-btn:active { transform: translateY(.5px); box-shadow: 0 0 0 1px rgba(0,0,0,.45),
+      inset 0 2px 5px rgba(0,0,0,.4), inset 0 -1px 0 rgba(255,255,255,.06); }
+    .qp-btn.qp-secondary { color: rgba(255,255,255,.88);
+      background: linear-gradient(180deg, #34363b, #26282c);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.12),
+        inset 0 -1px 0 rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.4); }
+    .qp-btn.qp-secondary:hover { filter: brightness(1.12); }
     .qp-btn:disabled { opacity: .55; cursor: default; }
-    .qp-err { background: #3a1d1d; border: 1px solid #6e2b2b; color: #f2b8b8;
-      border-radius: 8px; padding: 8px 10px; font-size: 12px; margin-bottom: 8px; display: none; }
-    .qp-res { border-top: 1px solid #2e323a; margin-top: 4px; padding-top: 10px; display: none; }
+    .qp-err { background: rgba(122,32,32,.28); box-shadow: 0 0 0 1px rgba(255,120,120,.25);
+      color: #f3c1c1; border-radius: 10px; padding: 8px 10px; font-size: 12px;
+      margin-bottom: 8px; display: none; }
+    .qp-res { border-top: 1px solid rgba(255,255,255,.06); margin-top: 4px; padding-top: 10px; display: none; }
     .qp-res .qp-rrow { display: flex; align-items: center; justify-content: space-between;
-      padding: 6px 0; border-bottom: 1px dashed #262a31; }
+      padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,.07); }
     .qp-res .qp-rrow:last-child { border-bottom: 0; }
-    .qp-res .qp-k { color: #9aa0ab; font-size: 12px; }
-    .qp-res .qp-v { font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
-    .qp-res .qp-v.qp-final { color: #7ee2a8; font-size: 17px; }
-    .qp-copy { border: 1px solid #343a44; background: #24282f; color: #cfd3da; border-radius: 7px;
-      font-size: 11px; padding: 4px 9px; cursor: pointer; margin-left: 8px; }
-    .qp-copy:hover { background: #2f353e; }
+    .qp-res .qp-k { color: rgba(255,255,255,.55); font-size: 10.5px; font-weight: 600;
+      letter-spacing: .09em; text-transform: uppercase; }
+    .qp-res .qp-v { font-weight: 600; font-size: 14px; letter-spacing: -.01em;
+      font-variant-numeric: tabular-nums; }
+    .qp-res .qp-v.qp-final { color: #7ee2a8; font-size: 18px; letter-spacing: -.02em; }
+    .qp-copy { border: 0; border-radius: 8px; font: inherit; font-size: 11px; font-weight: 600;
+      padding: 5px 10px; cursor: pointer; margin-left: 8px; color: rgba(255,255,255,.82);
+      background: linear-gradient(180deg, #34363b, #26282c);
+      box-shadow: 0 0 0 1px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.12),
+        inset 0 -1px 0 rgba(0,0,0,.4), 0 1px 2px rgba(0,0,0,.35);
+      transition: transform .12s var(--ease-out), filter .14s ease; }
+    .qp-copy:hover { filter: brightness(1.14); }
+    .qp-copy:active { transform: scale(.96); }
     .qp-ok { color: #7ee2a8; font-size: 12px; margin-top: 6px; display: none; }
-    .qp-panel { transition: transform .3s cubic-bezier(.22,1,.36,1), opacity .25s ease;
-      background: rgba(22,24,29,.96); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
-    .qp-panel.qp-min { transform: translateX(calc(-100% - 32px)); opacity: 0; pointer-events: none; }
-    .qp-dock { position: fixed; z-index: 2147483647; left: 0; top: 34%;
-      width: 44px; padding: 14px 0 12px;
-      background: rgba(18,20,25,.78);
-      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-      color: #e8eaed; border: 1px solid rgba(255,255,255,.09); border-left: 0;
-      border-radius: 0 14px 14px 0;
-      box-shadow: 8px 0 28px rgba(0,0,0,.5), inset 1px 0 0 rgba(255,255,255,.05);
-      cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 10px;
-      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-      transition: transform .3s cubic-bezier(.22,1,.36,1), background .15s ease, width .18s ease; }
-    .qp-dock:hover { background: rgba(30,34,41,.92); width: 50px; }
-    .qp-dock.qp-hidden { transform: translateX(-115%); }
-    .qp-dock .qp-dock-mark { width: 26px; height: 26px; border-radius: 9px; flex-shrink: 0;
-      background: linear-gradient(135deg, #2f6fed 0%, #7a5cff 100%);
+    .qp-dock { position: fixed; z-index: 2147483647; isolation: isolate;
+      padding: 11px 13px 10px; border-radius: 18px; overflow: hidden;
+      cursor: grab; user-select: none; touch-action: none;
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      transition: opacity .2s var(--ease-out), transform .24s var(--ease-drawer), filter .16s ease; }
+    .qp-dock:hover { filter: brightness(1.1); }
+    .qp-dock:active { cursor: grabbing; }
+    .qp-dock.qp-hidden { opacity: 0; transform: scale(.9); pointer-events: none; }
+    .qp-dock .qp-dock-mark { position: relative; z-index: 1; width: 30px; height: 30px;
+      border-radius: 10px; flex-shrink: 0;
+      background: linear-gradient(180deg, #3d7bf0, #2f6fed 55%, #2a63d8);
       display: flex; align-items: center; justify-content: center;
-      font-size: 10px; font-weight: 800; letter-spacing: .03em; color: #fff;
-      box-shadow: 0 2px 12px rgba(80,110,250,.55); }
-    .qp-dock .qp-dock-label { writing-mode: vertical-rl; letter-spacing: .24em;
-      font-size: 9px; font-weight: 700; color: #8b9099; transition: color .15s ease; }
-    .qp-dock:hover .qp-dock-label { color: #d5d9e0; }
-    .qp-dock .qp-dock-total { font-size: 10px; font-weight: 700; color: #7ee2a8;
-      font-variant-numeric: tabular-nums; max-width: 38px; overflow: hidden;
+      font-size: 11px; font-weight: 800; letter-spacing: .02em; color: #fff;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.30),
+        inset 0 -1px 0 rgba(0,0,0,.3), 0 3px 10px rgba(47,111,237,.45); }
+    .qp-dock .qp-dock-label { position: relative; z-index: 1; letter-spacing: .22em;
+      font-size: 8.5px; font-weight: 700; color: rgba(255,255,255,.48); padding-left: .22em; }
+    .qp-dock .qp-dock-total { position: relative; z-index: 1; font-size: 11px; font-weight: 700;
+      color: #7ee2a8; font-variant-numeric: tabular-nums; max-width: 74px; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; }
+    @media (prefers-reduced-motion: reduce) {
+      .qp-panel, .qp-dock, .qp-btn, .qp-copy, .qp-head .qp-x { transition-duration: .01ms !important; }
+    }
   `;
 
   function makePanel(title) {
+    // Tier-1 webfont: Inter from Google Fonts. Host-page CSP may refuse it,
+    // in which case the system stack in PANEL_CSS carries the design.
+    try {
+      if (!document.querySelector("link[data-qp-font]")) {
+        const l = document.createElement("link");
+        l.rel = "stylesheet";
+        l.setAttribute("data-qp-font", "1");
+        l.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap";
+        document.head.appendChild(l);
+      }
+    } catch (e) { /* fallback stack applies */ }
+
     const host = document.createElement("div");
     host.id = "qp-host";
     host.style.cssText = "position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;";
@@ -631,19 +726,20 @@
     style.textContent = PANEL_CSS;
     const panel = document.createElement("div");
     panel.className = "qp-panel";
-    panel.style.left = "16px";
-    panel.style.bottom = "16px";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", title);
     panel.innerHTML =
-      '<div class="qp-head"><b>' + title + '</b><button class="qp-x" title="Dock to edge">\u2013</button></div>' +
+      '<div class="qp-head"><span class="qp-grip"></span><b>' + title + '</b>' +
+      '<button class="qp-x" title="Dock (Alt+Q)">\u2013</button></div>' +
       '<div class="qp-body"></div>';
     shadow.appendChild(style);
     shadow.appendChild(panel);
 
-    // Edge dock: slim tab that lives on the right edge while the panel is
-    // tucked away. Click it to slide the panel back out.
+    // Floating dock pill: lives wherever the panel was left, detached from
+    // the screen edge. Click expands, drag repositions, double-click resets.
     const dock = document.createElement("div");
     dock.className = "qp-dock";
-    dock.title = "QuotePro \u2014 click to expand";
+    dock.title = "QuotePro \u2014 click to expand, drag to move";
     const dockMark = document.createElement("span");
     dockMark.className = "qp-dock-mark";
     dockMark.textContent = "QP";
@@ -659,9 +755,150 @@
     shadow.appendChild(dock);
     document.documentElement.appendChild(host);
 
+    /* ---- position: shared anchor, stored as viewport fractions ---- */
+    const MARGIN = 14;
+    let anchor = GM_getValue(STORE.pos, null) || { fx: 0.012, fy: 0.30 };
+    const clampFor = (el, fx, fy) => {
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const w = el.offsetWidth || 60, h = el.offsetHeight || 60;
+      return {
+        x: Math.min(Math.max(Math.round(fx * vw), 8), Math.max(8, vw - w - 8)),
+        y: Math.min(Math.max(Math.round(fy * vh), 8), Math.max(8, vh - h - 8)),
+      };
+    };
+    const place = (el) => {
+      const p = clampFor(el, anchor.fx, anchor.fy);
+      el.style.left = p.x + "px";
+      el.style.top = p.y + "px";
+    };
+    const persist = () => { try { GM_setValue(STORE.pos, anchor); } catch (e) { /* noop */ } };
+    const placeAll = () => { place(panel); place(dock); };
+    placeAll();
+    window.addEventListener("resize", placeAll);
+
+    const reducedMotion = () =>
+      window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    /* ---- spring: critically damped, velocity-preserving ---- */
+    let spring = null;
+    const stopSpring = () => { if (spring) { cancelAnimationFrame(spring.raf); spring = null; } };
+    const springTo = (el, from, to, vel, done) => {
+      stopSpring();
+      if (reducedMotion()) { el.style.transform = ""; done(to); return; }
+      const K = 300, C = 29;
+      const st = {
+        x: from.x, y: from.y, vx: vel.x || 0, vy: vel.y || 0,
+        tx: to.x, ty: to.y, last: performance.now(), raf: 0,
+      };
+      const step = (now) => {
+        let dt = Math.min(0.05, (now - st.last) / 1000);
+        st.last = now;
+        while (dt > 0) {
+          const h = Math.min(dt, 1 / 60);
+          dt -= h;
+          st.vx += (-K * (st.x - st.tx) - C * st.vx) * h;
+          st.vy += (-K * (st.y - st.ty) - C * st.vy) * h;
+          st.x += st.vx * h;
+          st.y += st.vy * h;
+        }
+        el.style.transform = "translate3d(" + st.x + "px," + st.y + "px,0)";
+        const settled = Math.abs(st.x - st.tx) < 0.5 && Math.abs(st.y - st.ty) < 0.5 &&
+          Math.abs(st.vx) < 8 && Math.abs(st.vy) < 8;
+        if (settled) {
+          spring = null;
+          el.style.transform = "";
+          done({ x: st.tx, y: st.ty });
+          return;
+        }
+        st.raf = requestAnimationFrame(step);
+        spring = st;
+      };
+      st.raf = requestAnimationFrame(step);
+      spring = st;
+    };
+
+    /* ---- drag: header (panel) or the pill itself (dock) ---- */
+    const attachDrag = (el, handle) => {
+      let drag = null;
+      handle.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest && e.target.closest(".qp-x")) return;
+        stopSpring();
+        el.classList.remove("qp-dragging");
+        el.style.transform = "";
+        const r = el.getBoundingClientRect();
+        drag = {
+          id: e.pointerId, sx: e.clientX, sy: e.clientY,
+          bx: r.left, by: r.top, active: false,
+          samples: [{ t: performance.now(), x: e.clientX, y: e.clientY }],
+        };
+        try { handle.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+      });
+      handle.addEventListener("pointermove", (e) => {
+        if (!drag || e.pointerId !== drag.id) return;
+        const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+        if (!drag.active && Math.hypot(dx, dy) < 3) return;
+        if (!drag.active) {
+          drag.active = true;
+          el.classList.add("qp-dragging");
+        }
+        drag.samples.push({ t: performance.now(), x: e.clientX, y: e.clientY });
+        if (drag.samples.length > 6) drag.samples.shift();
+        el.style.transform = "translate3d(" + dx + "px," + dy + "px,0)" +
+          (el === dock ? "" : " scale(1.01)");
+      });
+      const finish = (e, cancelled) => {
+        if (!drag || (e && e.pointerId !== drag.id)) return;
+        const wasActive = drag.active;
+        const d = drag;
+        drag = null;
+        if (!wasActive) { el.classList.remove("qp-dragging"); return; }
+        if (el === dock) suppressDockClick = true;
+        const dx = e ? e.clientX - d.sx : 0, dy = e ? e.clientY - d.sy : 0;
+        // Release velocity from the last ~100ms of samples.
+        let vx = 0, vy = 0;
+        const s = d.samples;
+        if (s.length > 1) {
+          const a = s[0], b = s[s.length - 1], dt = Math.max(1, b.t - a.t) / 1000;
+          vx = (b.x - a.x) / dt; vy = (b.y - a.y) / dt;
+        }
+        const vw = window.innerWidth, vh = window.innerHeight;
+        const w = el.offsetWidth, h = el.offsetHeight;
+        let tx = d.bx + dx, ty = d.by + dy;
+        // Snap to an edge when close (or flung toward it).
+        if (tx < 56 || (tx < vw / 2 && vx < -500)) tx = MARGIN;
+        else if (tx + w > vw - 56 || (tx > vw / 2 && vx > 500)) tx = vw - w - MARGIN;
+        ty = Math.min(Math.max(ty, 8), Math.max(8, vh - h - 8));
+        tx = Math.min(Math.max(tx, 8), Math.max(8, vw - w - 8));
+        const fromDelta = { x: tx - d.bx, y: ty - d.by };
+        el.style.left = d.bx + "px";
+        el.style.top = d.by + "px";
+        springTo(el, { x: dx, y: dy },
+          cancelled ? { x: 0, y: 0 } : fromDelta,
+          { x: vx, y: vy },
+          (end) => {
+            el.classList.remove("qp-dragging");
+            const fx = (d.bx + end.x) / window.innerWidth;
+            const fy = (d.by + end.y) / window.innerHeight;
+            anchor = { fx, fy };
+            persist();
+            placeAll();
+          });
+      };
+      handle.addEventListener("pointerup", (e) => finish(e, false));
+      handle.addEventListener("pointercancel", (e) => finish(e, true));
+      handle.addEventListener("dblclick", () => {
+        anchor = { fx: 0.012, fy: 0.30 };
+        persist();
+        placeAll();
+      });
+    };
+
     const setDocked = (docked) => {
       panel.classList.toggle("qp-min", docked);
       dock.classList.toggle("qp-hidden", !docked);
+      dock.setAttribute("aria-expanded", docked ? "false" : "true");
+      placeAll();
       try { GM_setValue(STORE.docked, docked); } catch (e) { /* noop */ }
     };
     const setDockTotal = (text) => {
@@ -671,8 +908,17 @@
       } else {
         dockTotal.style.display = "none";
       }
+      place(dock);
     };
-    dock.addEventListener("click", () => setDocked(false));
+    let suppressDockClick = false;
+    dock.addEventListener("click", () => {
+      if (suppressDockClick) { suppressDockClick = false; return; }
+      setDocked(false);
+    });
+    const head = panel.querySelector(".qp-head");
+    head.querySelector(".qp-x").addEventListener("click", () => setDocked(true));
+    attachDrag(panel, head);
+    attachDrag(dock, dock);
     // Alt+Q toggles the dock from anywhere on the page (not while typing).
     document.addEventListener("keydown", (e) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || (e.key !== "q" && e.key !== "Q")) return;
@@ -681,32 +927,12 @@
       e.preventDefault();
       setDocked(!panel.classList.contains("qp-min"));
     });
-
-    const head = panel.querySelector(".qp-head");
-    head.querySelector(".qp-x").addEventListener("click", () => setDocked(true));
-    // Start docked; the dock tab is the entry point.
-    setDocked(GM_getValue(STORE.docked, true));
-    // Drag by header.
-    head.addEventListener("mousedown", (e) => {
-      if (e.target.classList.contains("qp-x")) return;
-      e.preventDefault();
-      const r = panel.getBoundingClientRect();
-      panel.style.right = "auto";
-      panel.style.bottom = "auto";
-      panel.style.left = r.left + "px";
-      panel.style.top = r.top + "px";
-      const sx = e.clientX - r.left, sy = e.clientY - r.top;
-      const move = (ev) => {
-        panel.style.left = Math.max(0, ev.clientX - sx) + "px";
-        panel.style.top = Math.max(0, ev.clientY - sy) + "px";
-      };
-      const up = () => {
-        document.removeEventListener("mousemove", move);
-        document.removeEventListener("mouseup", up);
-      };
-      document.addEventListener("mousemove", move);
-      document.addEventListener("mouseup", up);
+    // Esc collapses when the interaction is inside our own shadow tree.
+    shadow.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") setDocked(true);
     });
+    // Start in the remembered state; the dock pill is the entry point.
+    setDocked(GM_getValue(STORE.docked, true));
     return { host, body: panel.querySelector(".qp-body"), setDocked, setDockTotal };
   }
 
@@ -919,8 +1145,9 @@
     let jobType = "install";
     // Segmented control for job type.
     const jtRow = document.createElement("div");
-    jtRow.style.cssText = "display:flex;background:#0f1114;border:1px solid #2e323a;border-radius:10px;" +
-      "padding:3px;gap:3px;margin-bottom:10px;";
+    jtRow.style.cssText = "display:flex;background:linear-gradient(180deg,#101112,#141518);" +
+      "box-shadow:inset 0 1px 3px rgba(0,0,0,.7),inset 0 -1px 0 rgba(255,255,255,.05),0 0 0 1px rgba(255,255,255,.05);" +
+      "border-radius:11px;padding:3px;gap:3px;margin-bottom:10px;";
     const jtBtns = {};
     const installBox = document.createElement("div");
     const serviceBox = document.createElement("div");
@@ -973,8 +1200,10 @@
       const ta = document.createElement("textarea");
       ta.value = initial || "";
       ta.rows = rows || 2;
-      ta.style.cssText = "width:100%;box-sizing:border-box;background:#0f1114;border:1px solid #2e323a;" +
-        "color:#e8eaed;border-radius:8px;padding:7px 9px;font-size:13px;font-family:inherit;resize:vertical;";
+      ta.style.cssText = "width:100%;box-sizing:border-box;border:0;border-radius:10px;" +
+        "background:linear-gradient(180deg,#101112,#141518);color:rgba(255,255,255,.92);" +
+        "box-shadow:inset 0 1px 3px rgba(0,0,0,.7),inset 0 -1px 0 rgba(255,255,255,.05),0 0 0 1px rgba(255,255,255,.05);" +
+        "padding:8px 10px;font-size:13px;font-family:inherit;resize:vertical;";
       parent.appendChild(lab);
       parent.appendChild(ta);
       return ta;
@@ -1011,8 +1240,7 @@
     const closerLab = document.createElement("label");
     closerLab.textContent = "Closer";
     const closerSel = document.createElement("select");
-    closerSel.style.cssText = "flex:1;min-width:0;background:#0f1114;border:1px solid #2e323a;" +
-      "color:#e8eaed;border-radius:8px;padding:7px 9px;font-size:13px;";
+    closerSel.style.cssText = "flex:1;min-width:0;";
     CLOSERS.forEach((c) => {
       const o = document.createElement("option");
       o.value = c;
@@ -1044,8 +1272,10 @@
       const ta = document.createElement(area ? "textarea" : "input");
       if (!area) ta.type = "text";
       else ta.rows = rows || 3;
-      ta.style.cssText = "width:100%;box-sizing:border-box;background:#101318;border:1px solid #2e323a;" +
-        "border-left:2px solid #2f6fed;color:#e8eaed;border-radius:8px;padding:7px 9px;font-size:13px;" +
+      ta.style.cssText = "width:100%;box-sizing:border-box;border:0;" +
+        "background:linear-gradient(180deg,#101112,#141518);" +
+        "box-shadow:inset 0 1px 3px rgba(0,0,0,.7),inset 0 -1px 0 rgba(255,255,255,.05),0 0 0 1px rgba(255,255,255,.05),inset 2px 0 0 #2f6fed;" +
+        "color:rgba(255,255,255,.92);border-radius:10px;padding:8px 10px;font-size:13px;" +
         "font-family:inherit;" + (area ? "resize:vertical;" : "");
       cp.addEventListener("click", () => copyText(ta.value, cp));
       top.appendChild(lab);
