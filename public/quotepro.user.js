@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.1.2
+// @version      1.2.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -327,25 +327,50 @@
   //   when inches are present ("10'2\"x8'"), x-sizes when whole-foot
   // - the Summary NEVER contains a price breakdown; never leave it blank
 
+  // Window phrases as they actually appear across 1,419 real estimates
+  // (learned 2026-10-20 via the ServiceTitan Bridge).
   const WINDOWS_VARIANTS = [
-    "Solid, No Windows",
     "Solid No Windows",
+    "Solid, No Windows",
     "No Windows",
-    "Windows Top Section",
-    "Insulated Windows, 24x12",
+    "Insulated Windows",
+    "Insulated Windows Top Section",
     "Insulated Windows SQ24 Design",
+    "Insulated Windows, 24x12",
+    "Full Vision Insulated Glass 4th Section",
+    "Insulated Tempered Windows",
+    "Windows Top Section",
   ];
 
+  // Model -> series, majority usage per model across the estimate history.
+  // 4050/4300/4310/9200/9203 appear under two series names in the data, so
+  // these are defaults; the Series field stays editable.
   const SERIES_MAP = {
-    "9133": "Classic Steel",
+    "4050": "Classic Steel", "4053": "Classic Steel",
+    "4300": "Classic Steel", "4310": "Classic Steel",
+    "9130": "Classic Steel", "9133": "Classic Steel", "9203": "Classic Steel",
+    "9200": "Premium Series",
+    "4132": "Modern Steel", "4308": "Modern Steel",
+    "9208": "Modern Steel", "9209": "Modern Steel",
+    "3150": "Commercial", "3200": "Commercial", "3211": "Commercial",
+    "3715": "Commercial", "3717": "Commercial", "3720": "Commercial",
+    "3722": "Commercial", "3723": "Commercial", "3724": "Commercial",
+    "3730": "Commercial",
+    "524": "Commercial", "524S": "Commercial", "524V": "Commercial",
+    "525S": "Commercial",
     "T50L": "T50L",
-    "4300": "4300",
   };
 
   const CLOSERS = [
-    "No Opener",
     "Door Removal",
+    "No Opener",
+    "No Openers",
+    "No Door Removal",
+    "Door Removal\nNo Opener",
+    "No Opener\nDoor Removal",
     "No Installation",
+    "Customer Pickup No Installation",
+    "Door Removal and Reconnect to Existing Opener",
     "NO OPENERS, Reconnect to existing Openers",
   ];
 
@@ -371,9 +396,10 @@
   }
   function fmtXSize(sz) {
     if (!sz) return "";
-    const w = sz.wIn ? sz.wFt + "'" + sz.wIn + '"' : "" + sz.wFt;
-    const h = sz.hIn ? sz.hFt + "'" + sz.hIn + '"' : "" + sz.hFt;
-    return w + "x" + h;
+    // Whole-foot sizes stay plain ("16x8"). Once either dimension carries
+    // inches, both render in feet/inch marks ("10'2\"x8'", "10'x6'6\"").
+    if (!sz.wIn && !sz.hIn) return sz.wFt + "x" + sz.hFt;
+    return fmtFeetSize(sz);
   }
   function fmtFeetSize(sz) {
     if (!sz) return "";
@@ -387,9 +413,41 @@
     if (/no\s*windows|without\s*windows|windowless/i.test(s)) {
       return /solid/i.test(s) ? "Solid, No Windows" : "No Windows";
     }
-    if (/top\s*section/i.test(s)) return "Windows Top Section";
     const hit = WINDOWS_VARIANTS.find((v) => v.toLowerCase() === s.toLowerCase());
-    return hit || s;
+    if (hit) return hit;
+    if (/full\s*vision|fullvision|fullview/i.test(s)) return "Full Vision Insulated Glass";
+    // A window design segment such as "PLAIN LONG 40 1/2 X 12" becomes
+    // Weston's phrase "Insulated Windows, Plain Long 40 1/2 x 12".
+    const style = s.match(/(plain\s+(?:long|short)|sq\s*24|arch\s*\d+|rec\s*\d+)/i);
+    if (style) {
+      if (/sq\s*24/i.test(style[1])) return "Insulated Windows SQ24 Design";
+      let st = toTitleCase(style[1].replace(/\s+/g, " "))
+        .replace(/^(Arch|Rec)(\d+)$/i, (m, a, n) => a.toUpperCase() + n);
+      const wsize = s.match(/(\d+(?:\s+\d+\/\d+)?)\s*x\s*(\d+(?:\s+\d+\/\d+)?)/i);
+      const sz = wsize ? (wsize[1].replace(/\s+/g, " ").trim() + " x " + wsize[2].replace(/\s+/g, " ").trim()) : "";
+      return ("Insulated Windows, " + st + (sz ? " " + sz : "")).trim();
+    }
+    if (/top\s*section/i.test(s)) return "Insulated Windows Top Section";
+    return toTitleCase(s);
+  }
+
+  // Track / radius live in free-floating product-line segments (for example
+  // '2" FLAG & JAMB BRACKETS LOOSE', '12" RADIUS'), not in a "track" segment,
+  // so read them off the whole product text.
+  function mapTrackFromText(rest) {
+    if (/FLAG\s*&\s*JAMB/i.test(rest)) return '2" Flag & Jamb Track';
+    if (/REVERSE\s+ANGLE/i.test(rest)) return '2" RA Track';
+    if (/\bCA\s+TRACK\b/i.test(rest)) return '2" CA Track';
+    if (/LOW\s+HEADROOM|\bLHR\b/i.test(rest)) return "Low Headroom Track";
+    return "";
+  }
+  function mapRadiusFromText(rest) {
+    const hlt = rest.match(/(\d+(?:\.\d+)?)\s*"?\s*HLT/i);
+    if (hlt) return hlt[1] + '" HLT Radius';
+    const m = rest.match(/(\d+(?:\.\d+)?)\s*"\s*RADIUS/i);
+    if (m) return m[1] + '" Radius';
+    if (/\bLHR\b|LOW\s+HEADROOM/i.test(rest)) return "LHR Radius";
+    return "";
   }
 
   // Pull the door profile off the iStore Pricing Details modal. The modal
@@ -423,15 +481,33 @@
       }
       profile.color = profile.color
         .replace(/^(Standard|Commercial)\s+/i, "").replace(/\s*\(Trinar\)\s*/i, "").trim();
-      profile.windows = mapWindowsVariant(segs.find((s) => /window/i.test(s)) || "");
+      profile.windows = mapWindowsVariant(
+        segs.find((s) => /window|plain\s+(long|short)|sq\s*24|arch\s*\d|rec\s*\d|full\s*vision/i.test(s)) || "");
+      const secm = rest.match(/SECTION\s*(\d+)/i);
+      if (secm && profile.windows && /insulated|full vision/i.test(profile.windows) &&
+          !/section/i.test(profile.windows)) {
+        if (/^Full Vision/i.test(profile.windows)) {
+          const ord = { "1": "1st", "2": "2nd", "3": "3rd" }[secm[1]] || secm[1] + "th";
+          profile.windows += " " + ord + " Section";
+        } else {
+          profile.windows += ", Section " + secm[1];
+        }
+      }
       const iseg = segs.find((s) => /insulat|r-value|polystyrene|polyurethane|intellicore/i.test(s)) || "";
       if (iseg) profile.insulation = toTitleCase(iseg);
-      const tseg = segs.find((s) => /track/i.test(s)) || "";
-      if (tseg) profile.track = toTitleCase(tseg);
-      const rseg = segs.find((s) => /radius/i.test(s)) || "";
-      if (rseg) profile.radius = toTitleCase(rseg);
+      profile.track = mapTrackFromText(rest);
+      if (!profile.track) {
+        const tseg = segs.find((s) => /track/i.test(s)) || "";
+        if (tseg) profile.track = toTitleCase(tseg);
+      }
+      profile.radius = mapRadiusFromText(rest);
+      if (!profile.radius) {
+        const rseg = segs.find((s) => /radius/i.test(s)) || "";
+        if (rseg) profile.radius = toTitleCase(rseg);
+      }
     } catch (e) { /* best effort; every field stays editable */ }
-    profile.series = SERIES_MAP[profile.model] || profile.model;
+    profile.series = SERIES_MAP[profile.model] ||
+      (/^(CAN|CED)/i.test(profile.model) ? "Canyon Ridge" : profile.model);
     return profile;
   }
 
@@ -446,8 +522,15 @@
       out.summary = noEmDash(p.serviceSummary || "");
       return out;
     }
-    let title = ("Clopay " + [p.series, sizeX].filter(Boolean).join(" ") + " Door")
-      .replace(/\s+/g, " ").trim();
+    // Commercial titles carry the model: "Clopay Commercial 3722 10'2\"x8' Door".
+    let title;
+    if (p.series === "Commercial" && p.model) {
+      title = ("Clopay Commercial " + p.model + " " + sizeX + " Door")
+        .replace(/\s+/g, " ").trim();
+    } else {
+      title = ("Clopay " + [p.series, sizeX].filter(Boolean).join(" ") + " Door")
+        .replace(/\s+/g, " ").trim();
+    }
     if (p.titleOption) title += " (" + p.titleOption.trim() + ")";
     out.title = noEmDash(title);
 
@@ -933,7 +1016,7 @@
     CLOSERS.forEach((c) => {
       const o = document.createElement("option");
       o.value = c;
-      o.textContent = c;
+      o.textContent = c.replace(/\n/g, " + ");
       closerSel.appendChild(o);
     });
     closerRow.appendChild(closerLab);
@@ -942,6 +1025,7 @@
     const titleOptIn = mkField(installBox, "Title option", "");
     titleOptIn.placeholder = "e.g. R-12.9 Option";
     const openerTa = mkArea(installBox, "Opener rows (one per line)", "", 2);
+    openerTa.placeholder = "e.g. Liftmaster Opener";
 
     const svcTitleIn = mkField(serviceBox, "Title", "");
     const svcSummaryTa = mkArea(serviceBox, "Summary", "", 3);
