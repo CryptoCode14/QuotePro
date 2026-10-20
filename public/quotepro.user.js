@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.4.1
+// @version      1.4.2
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -1000,8 +1000,8 @@
       m.el.style.willChange = "";
       if (commit) commitMot(m);
     };
-    const motStart = (el) => {
-      if (mot && mot.el === el) return mot;
+    const motStart = (el, hold) => {
+      if (mot && mot.el === el) { if (hold) mot.hold = true; return mot; }
       motStop(true);
       const r = el.getBoundingClientRect();
       el.style.left = Math.round(r.left) + "px";
@@ -1010,7 +1010,7 @@
       const m = {
         el: el, bx: r.left, by: r.top,
         x: r.left, y: r.top, vx: 0, vy: 0, tx: r.left, ty: r.top,
-        dragging: false, moved: false, last: performance.now(), raf: 0,
+        dragging: false, moved: false, hold: !!hold, last: performance.now(), raf: 0,
         zoneEdge: null, zoneSince: 0, nearEdge: null,
       };
       mot = m;
@@ -1047,7 +1047,7 @@
         (m.el === panel && m.dragging ? " scale(1.01)" : "");
       applyContour(m.el, engEdge, bleedCur);
       renderBridge();
-      const rest = !m.dragging &&
+      const rest = !m.dragging && !m.hold &&
         Math.abs(m.x - m.tx) < 0.5 && Math.abs(m.y - m.ty) < 0.5 &&
         Math.abs(m.vx) < 10 && Math.abs(m.vy) < 10 &&
         Math.abs(bleedCur - bleedTgt) < 0.01 && Math.abs(tensionCur - tensionTgt) < 0.01;
@@ -1153,7 +1153,7 @@
         if (e.button !== 0) return;
         if (e.target.closest && e.target.closest(".qp-x")) return;
         if (el === dock) suppressDockClick = false;
-        const m = motStart(el);
+        const m = motStart(el, true);
         drag = {
           id: e.pointerId, sx: e.clientX, sy: e.clientY, active: false,
           gx: e.clientX - m.x, gy: e.clientY - m.y, pvx: 0, pvy: 0,
@@ -1191,6 +1191,7 @@
       const finish = (e, cancelled) => {
         if (!drag || (e && e.pointerId !== drag.id)) return;
         const wasActive = drag.active;
+        mot.hold = false;
         const d = drag;
         drag = null;
         if (!mot || mot.el !== el) return;
@@ -1296,7 +1297,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v1.4.1";
+    verEl.textContent = "QuotePro browser tool v1.4.2";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
