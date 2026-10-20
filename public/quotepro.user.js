@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.4.4
+// @version      1.5.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -695,10 +695,17 @@
     .qp-copy:active { transform: scale(.96); }
     .qp-ok { color: #7ee2a8; font-size: 12px; margin-top: 6px; display: none; }
     .qp-dock { position: fixed; z-index: 2147483647; isolation: isolate;
-      padding: 10px 16px 10px 10px; border-radius: 16px; overflow: hidden;
+      padding: 10px 16px 10px 10px; border-radius: 16px; overflow: visible;
+      background: transparent; box-shadow: none;
       cursor: grab; user-select: none; touch-action: none;
       display: flex; flex-direction: row; align-items: center; gap: 11px;
       transition: opacity .2s var(--ease-out), transform .24s var(--ease-drawer), filter .16s ease; }
+    .qp-dock::before, .qp-dock::after { display: none; }
+    .qp-dock.qp-dock-v { flex-direction: column; padding: 14px 9px; gap: 9px;
+      box-sizing: border-box; min-height: 148px; justify-content: center; }
+    .qp-dock.qp-dock-v .qp-dock-text { align-items: center; }
+    .qp-dock.qp-dock-v .qp-dock-label { display: none; }
+    .qp-dock.qp-dock-v .qp-dock-total { font-size: 13px; max-width: 78px; text-align: center; }
     .qp-dock .qp-dock-text { position: relative; z-index: 1; display: flex;
       flex-direction: column; align-items: flex-start; gap: 2px; }
     .qp-dock:hover { filter: brightness(1.1); }
@@ -723,9 +730,9 @@
     .qp-dock .qp-dock-total { position: relative; z-index: 1; font-size: 15px; font-weight: 700;
       color: #7ee2a8; font-variant-numeric: tabular-nums; max-width: 130px; overflow: hidden;
       text-overflow: ellipsis; white-space: nowrap; line-height: 1.15; }
-    .qp-liquid { position: fixed; left: 0; top: 0; z-index: 1; pointer-events: none;
-      overflow: visible; visibility: hidden;
-      filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)) drop-shadow(0 18px 30px rgba(0,0,0,.35)); }
+    .qp-skin { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;
+      overflow: visible;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)) drop-shadow(0 16px 28px rgba(0,0,0,.38)); }
     @media (prefers-reduced-motion: reduce) {
       .qp-panel, .qp-dock, .qp-btn, .qp-copy, .qp-head .qp-x { transition-duration: .01ms !important; }
     }
@@ -760,30 +767,7 @@
       '<button class="qp-x" title="Dock (Alt+Q)">\u2013</button></div>' +
       '<div class="qp-body"></div>';
     shadow.appendChild(style);
-    // Liquid silhouette layer: an SVG meniscus bridge rendered behind the
-    // panel/pill (sized to the element + margin, never the full viewport),
-    // shadowed with CSS drop-shadow so the flare and body read as one
-    // liquid object when the dock bleeds into a screen edge.
     const svgNS = "http://www.w3.org/2000/svg";
-    const liquid = document.createElementNS(svgNS, "svg");
-    liquid.setAttribute("class", "qp-liquid");
-    const defs = document.createElementNS(svgNS, "defs");
-    const grad = document.createElementNS(svgNS, "linearGradient");
-    grad.setAttribute("id", "qpMetal");
-    grad.setAttribute("gradientUnits", "userSpaceOnUse");
-    [["0", "#26282c"], ["0.55", "#1b1c1f"], ["1", "#151619"]].forEach((pair) => {
-      const stop = document.createElementNS(svgNS, "stop");
-      stop.setAttribute("offset", pair[0]);
-      stop.setAttribute("stop-color", pair[1]);
-      grad.appendChild(stop);
-    });
-    defs.appendChild(grad);
-    liquid.appendChild(defs);
-    const bridge = document.createElementNS(svgNS, "path");
-    bridge.setAttribute("class", "qp-bridge");
-    bridge.setAttribute("fill", "url(#qpMetal)");
-    liquid.appendChild(bridge);
-    shadow.appendChild(liquid);
     shadow.appendChild(panel);
 
     // Floating dock pill: lives wherever the panel was left, detached from
@@ -791,6 +775,37 @@
     const dock = document.createElement("div");
     dock.className = "qp-dock";
     dock.title = "QuotePro \u2014 click to expand, drag to move";
+    // The dock's surface is a single SVG silhouette (the "skin"): body,
+    // liquid neck and wall weld are ONE path, so the edge the user sees
+    // is the dock's own outline. The v1.4.x design drew a separate bridge
+    // tongue behind a CSS-bodied element; the seam between the two
+    // substances read as fake, so the bridge is gone.
+    const skin = document.createElementNS(svgNS, "svg");
+    skin.setAttribute("class", "qp-skin");
+    const skinDefs = document.createElementNS(svgNS, "defs");
+    const skinGrad = document.createElementNS(svgNS, "linearGradient");
+    skinGrad.setAttribute("id", "qpMetalSkin");
+    skinGrad.setAttribute("gradientUnits", "userSpaceOnUse");
+    [["0", "#26282c"], ["0.55", "#1b1c1f"], ["1", "#151619"]].forEach((pair) => {
+      const stop = document.createElementNS(svgNS, "stop");
+      stop.setAttribute("offset", pair[0]);
+      stop.setAttribute("stop-color", pair[1]);
+      skinGrad.appendChild(stop);
+    });
+    skinDefs.appendChild(skinGrad);
+    skin.appendChild(skinDefs);
+    const skinPath = document.createElementNS(svgNS, "path");
+    skinPath.setAttribute("class", "qp-skin-path");
+    skinPath.setAttribute("fill", "url(#qpMetalSkin)");
+    skinPath.setAttribute("stroke", "rgba(255,255,255,.09)");
+    skinPath.setAttribute("stroke-width", "1");
+    skin.appendChild(skinPath);
+    dock.appendChild(skin);
+    // Orientation follows the wall: the bar stands vertical on the side
+    // edges, lies horizontal on the top/bottom edges and when free.
+    const setDockOrient = (edge) => {
+      dock.classList.toggle("qp-dock-v", edge === "left" || edge === "right");
+    };
     const dockMark = document.createElement("span");
     dockMark.className = "qp-dock-mark";
     const dockImg = document.createElement("img");
@@ -833,6 +848,7 @@
     let engEdge = snappedEdge;
     let bleedCur = snappedEdge ? 1 : 0;
     let tensionCur = 0;
+    let mot = null;
     const clamp01 = (v) => Math.min(1, Math.max(0, v));
     const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
     const clampAlong = (v, size, total) =>
@@ -848,82 +864,107 @@
       else if (edge === "top") el.style.borderRadius = flat + "px " + flat + "px " + r + "px " + r + "px";
       else el.style.borderRadius = r + "px " + r + "px " + flat + "px " + flat + "px";
     };
-    // Meniscus bridge: a flared tongue of metal from the engaged wall to
-    // the element's near edge, tips spreading along the wall. Adapted from
-    // Weston's liquid-dock prototype (flare ~95-105px, wall-tangent
-    // beziers, neck pinch under tear tension), drawn flare-only because
-    // the element renders its own body on top.
-    const PAD = 150;
-    const renderBridge = () => {
-      const edge = engEdge;
-      if (!edge || bleedCur <= 0.01) {
-        bridge.setAttribute("d", "");
-        liquid.style.visibility = "hidden";
-        return;
-      }
-      const el = activeEl();
-      const rect = el.getBoundingClientRect();
-      const w = rect.width, h = rect.height;
-      if (w < 4 || h < 4) { bridge.setAttribute("d", ""); return; }
-      liquid.style.visibility = "visible";
-      liquid.setAttribute("width", Math.round(w + PAD * 2));
-      liquid.setAttribute("height", Math.round(h + PAD * 2));
-      liquid.style.transform =
-        "translate3d(" + Math.round(rect.left - PAD) + "px," + Math.round(rect.top - PAD) + "px,0)";
-      grad.setAttribute("x1", "0");
-      grad.setAttribute("x2", "0");
-      grad.setAttribute("y1", String(PAD));
-      grad.setAttribute("y2", String(PAD + h));
-      const tension = tensionCur;
-      const flare = (el === dock ? 105 : 95) * Math.min(1, bleedCur) * (1 - tension * 0.35);
-      const vw = window.innerWidth, vh = window.innerHeight;
-      let d = "";
-      if (edge === "left" || edge === "right") {
-        const gap = Math.max(0, edge === "left" ? rect.left : vw - rect.right);
-        const pinch = gap * tension * 0.40;
-        const neck = Math.max(0, gap * (0.15 + (1 - tension) * 0.22) + w * 0.12 * (1 - tension * 0.5));
-        const aTop = PAD + pinch, aBot = PAD + h - pinch;
-        const topTip = PAD - flare, botTip = PAD + h + flare;
-        if (edge === "left") {
-          const wallX = PAD - gap, ax = PAD;
-          d = "M " + wallX + " " + topTip +
-            " C " + wallX + " " + (topTip + flare * 0.32) + ", " + (wallX + neck) + " " + aTop + ", " + ax + " " + aTop +
-            " L " + ax + " " + aBot +
-            " C " + (wallX + neck) + " " + aBot + ", " + wallX + " " + (botTip - flare * 0.32) + ", " + wallX + " " + botTip + " Z";
-        } else {
-          const wallX = PAD + w + gap, ax = PAD + w;
-          d = "M " + wallX + " " + topTip +
-            " C " + wallX + " " + (topTip + flare * 0.32) + ", " + (wallX - neck) + " " + aTop + ", " + ax + " " + aTop +
-            " L " + ax + " " + aBot +
-            " C " + (wallX - neck) + " " + aBot + ", " + wallX + " " + (botTip - flare * 0.32) + ", " + wallX + " " + botTip + " Z";
+    /* ---- dock skin: ONE silhouette for body + liquid edge ----
+       Built in a canonical frame (u along the wall, v away from it; the
+       body occupies u in [0, L], v in [0, S]; the wall sits at v = -gap)
+       and mapped onto the engaged edge. The two shoulders leave the
+       body's side edges tangentially and land on the wall tangentially,
+       bowed toward the corner — a concave meniscus fillet, the shape
+       surface tension actually makes. Under tear tension the contact
+       patch shrinks (the neck pinches); at gap 0 the fillets become the
+       weld that merges dock and wall. One path, one substance: the edge
+       the user sees is the dock's own outline. */
+    const SKIN_PAD = 170;
+    const skinPathD = (w, h, edge, gap, bleed, tension) => {
+      const P = SKIN_PAD, R = 16;
+      const n = (v) => Math.round(v * 10) / 10;
+      const rrect = () =>
+        "M " + n(P + R) + " " + P + " L " + n(P + w - R) + " " + P +
+        " Q " + n(P + w) + " " + P + " " + n(P + w) + " " + n(P + R) +
+        " L " + n(P + w) + " " + n(P + h - R) +
+        " Q " + n(P + w) + " " + n(P + h) + " " + n(P + w - R) + " " + n(P + h) +
+        " L " + n(P + R) + " " + n(P + h) +
+        " Q " + P + " " + n(P + h) + " " + P + " " + n(P + h - R) +
+        " L " + P + " " + n(P + R) +
+        " Q " + P + " " + P + " " + n(P + R) + " " + P + " Z";
+      if (!edge || gap > 95) return rrect();
+      const side = edge === "left" || edge === "right";
+      const L = side ? h : w, S = side ? w : h;
+      const b = Math.min(1, Math.max(0, bleed));
+      // Corner-box fillet: the wall contact extends only a fillet's
+      // worth past the body's ends (ext), and both bezier handles stay
+      // inside that corner box — an earlier proportional patch (1.34x
+      // the body length) ballooned into lobes and beaks past the ends.
+      const ext = (6 + 10 * b) * (1 - 0.5 * tension);
+      const ch = (L / 2) * (1 - 0.10 * tension) + ext;
+      // The shoulder sweep is capped by the body's DEPTH as well as its
+      // length, so the fillet can never consume the whole side edge.
+      const dep = Math.min(L * 0.28, S * 0.42, 10 + gap * 0.5 + 14 * b);
+      // The body-side handle dives PAST the corner (sA > dep puts the
+      // control point beyond the wall line): the curve leaves the body
+      // heading straight at the corner and hugs it — a concave meniscus.
+      // A short handle cuts diagonally across the box and bulges out
+      // into a blob (seen in the second 1.5.0 screenshots).
+      const sA = dep + gap * 0.45;
+      const sB = ext * 0.5 + gap * 0.10;
+      const uc = L / 2;
+      const seg = [];
+      seg.push(["M", 0, dep]);
+      seg.push(["C", 0, dep - sA, uc - ch - sB, -gap, uc - ch, -gap]);
+      seg.push(["L", uc + ch, -gap]);
+      seg.push(["C", uc + ch + sB, -gap, L, dep - sA, L, dep]);
+      seg.push(["L", L, S - R]);
+      seg.push(["Q", L, S, L - R, S]);
+      seg.push(["L", R, S]);
+      seg.push(["Q", 0, S, 0, S - R]);
+      seg.push(["Z"]);
+      const toXY = (u, v) => {
+        if (edge === "left") return [P + v, P + u];
+        if (edge === "right") return [P + w - v, P + u];
+        if (edge === "top") return [P + u, P + v];
+        return [P + u, P + h - v];
+      };
+      return seg.map((s) => {
+        if (s[0] === "Z") return "Z";
+        let out = s[0];
+        for (let i = 1; i < s.length; i += 2) {
+          const xy = toXY(s[i], s[i + 1]);
+          out += " " + n(xy[0]) + " " + n(xy[1]);
         }
-      } else {
-        const gap = Math.max(0, edge === "top" ? rect.top : vh - rect.bottom);
-        const pinch = gap * tension * 0.40;
-        const neck = Math.max(0, gap * (0.15 + (1 - tension) * 0.22) + h * 0.12 * (1 - tension * 0.5));
-        const aLeft = PAD + pinch, aRight = PAD + w - pinch;
-        const leftTip = PAD - flare, rightTip = PAD + w + flare;
-        if (edge === "top") {
-          const wallY = PAD - gap, ay = PAD;
-          d = "M " + leftTip + " " + wallY +
-            " C " + (leftTip + flare * 0.32) + " " + wallY + ", " + aLeft + " " + (wallY + neck) + ", " + aLeft + " " + ay +
-            " L " + aRight + " " + ay +
-            " C " + aRight + " " + (wallY + neck) + ", " + (rightTip - flare * 0.32) + " " + wallY + ", " + rightTip + " " + wallY + " Z";
-        } else {
-          const wallY = PAD + h + gap, ay = PAD + h;
-          d = "M " + leftTip + " " + wallY +
-            " C " + (leftTip + flare * 0.32) + " " + wallY + ", " + aLeft + " " + (wallY - neck) + ", " + aLeft + " " + ay +
-            " L " + aRight + " " + ay +
-            " C " + aRight + " " + (wallY - neck) + ", " + (rightTip - flare * 0.32) + " " + wallY + ", " + rightTip + " " + wallY + " Z";
-        }
+        return out;
+      }).join(" ");
+    };
+    const renderSkin = () => {
+      const w = dock.offsetWidth, h = dock.offsetHeight;
+      if (w < 4 || h < 4) return;
+      let x, y;
+      if (mot && mot.el === dock) { x = mot.x; y = mot.y; }
+      else {
+        x = parseFloat(dock.style.left) || 0;
+        y = parseFloat(dock.style.top) || 0;
       }
-      bridge.setAttribute("d", d);
+      const edge = (mot && mot.el === dock)
+        ? (engEdge || snappedEdge)
+        : (activeEl() === dock ? snappedEdge : null);
+      let gap = Infinity;
+      if (edge === "left") gap = Math.max(0, x);
+      else if (edge === "right") gap = Math.max(0, window.innerWidth - (x + w));
+      else if (edge === "top") gap = Math.max(0, y);
+      else if (edge === "bottom") gap = Math.max(0, window.innerHeight - (y + h));
+      skin.setAttribute("width", Math.round(w + SKIN_PAD * 2));
+      skin.setAttribute("height", Math.round(h + SKIN_PAD * 2));
+      skin.style.left = -SKIN_PAD + "px";
+      skin.style.top = -SKIN_PAD + "px";
+      skinGrad.setAttribute("x1", "0");
+      skinGrad.setAttribute("x2", "0");
+      skinGrad.setAttribute("y1", String(SKIN_PAD));
+      skinGrad.setAttribute("y2", String(SKIN_PAD + h));
+      skinPath.setAttribute("d",
+        skinPathD(w, h, gap <= 95 ? edge : null, gap, edge ? bleedCur : 0, edge ? tensionCur : 0));
     };
     const place = (el) => {
       if (busyEls.has(el)) return;
-      if (el === dock) {
-        dock.classList.toggle("qp-dock-h", snappedEdge === "top" || snappedEdge === "bottom");
-      }
+      if (el === dock) setDockOrient(snappedEdge);
       const vw = window.innerWidth, vh = window.innerHeight;
       const w = el.offsetWidth || 60, h = el.offsetHeight || 60;
       let p;
@@ -934,8 +975,8 @@
       else p = clampFor(el, anchor.fx, anchor.fy);
       el.style.left = p.x + "px";
       el.style.top = p.y + "px";
-      applyContour(el, snappedEdge, snappedEdge ? 1 : 0);
-      if (el === activeEl()) renderBridge();
+      if (el === panel) applyContour(panel, snappedEdge, snappedEdge ? 1 : 0);
+      else renderSkin();
     };
     const persist = () => { try { GM_setValue(STORE.pos, anchor); } catch (e) { /* noop */ } };
     const placeAll = () => { place(panel); place(dock); };
@@ -955,12 +996,11 @@
        on 70ms dwell or slow movement (instant inside 8px), a 250ms
        re-snap lockout after rupture, and a loop that sleeps at rest. */
     const BLEED_NEAR = 52, BLEED_FULL = 14, SNAP_ZONE = 24, SNAP_NOW = 8;
-    const TEAR_PULL = 85, LOCKOUT_MS = 250;
+    const TEAR_PULL = 100, LOCKOUT_MS = 250;
     const rubber = (x) => (x * 120 * 0.55) / (120 + 0.55 * x);
     let bleedTgt = bleedCur, bleedVel = 0;
     let tensionTgt = 0, tensionVel = 0;
     let lockoutUntil = 0;
-    let mot = null;
 
     const nearestEdge = (x, y, w, h) => {
       const c = [
@@ -1047,8 +1087,8 @@
       tensionCur = Math.max(0, Math.min(1, tensionCur));
       m.el.style.transform = "translate3d(" + (m.x - m.bx) + "px," + (m.y - m.by) + "px,0)" +
         (m.el === panel && m.dragging ? " scale(1.01)" : "");
-      applyContour(m.el, engEdge, bleedCur);
-      renderBridge();
+      if (m.el === panel) applyContour(panel, engEdge, bleedCur);
+      else renderSkin();
       const rest = !m.dragging && !m.hold &&
         Math.abs(m.x - m.tx) < 0.5 && Math.abs(m.y - m.ty) < 0.5 &&
         Math.abs(m.vx) < 10 && Math.abs(m.vy) < 10 &&
@@ -1064,6 +1104,7 @@
       m.raf = requestAnimationFrame(motStep);
     };
     const doSnap = (el, m, edge) => {
+      if (el === dock) setDockOrient(edge);
       snappedEdge = edge;
       anchor.edge = edge;
       engEdge = edge;
@@ -1096,6 +1137,7 @@
           tensionTgt = 0;
           bleedTgt = 0;
           engEdge = null;
+          if (el === dock) setDockOrient(null);
           m.tx = desX;
           m.ty = desY;
           persist();
@@ -1310,15 +1352,25 @@
       e.preventDefault();
       setDocked(!panel.classList.contains("qp-min"));
     });
-    // Esc collapses when the interaction is inside our own shadow tree.
+    // Esc collapses when the interaction is inside our own shadow tree,
+    // or when the keypress lands on the page background (focus sits on
+    // body after clicking the panel header, which is not focusable) —
+    // but never when it is aimed at a host-page field, where Esc belongs
+    // to the host app's own dialogs.
     shadow.addEventListener("keydown", (e) => {
       if (e.key === "Escape") setDocked(true);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (panel.classList.contains("qp-min")) return;
+      const t = e.target;
+      if (t === document.body || t === document.documentElement) setDocked(true);
     });
     // Tiny version tag at the panel's foot: makes "am I on the latest
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v1.4.4";
+    verEl.textContent = "QuotePro browser tool v1.5.0";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
