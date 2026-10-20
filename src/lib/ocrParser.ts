@@ -29,6 +29,10 @@
  *                 "PRICE FOR INSULATED" is the glass price, i.e. windows).
  *       etc     = everything else (FRAMING, COLOR, EXTRA STRUT,
  *                 TRACK MOUNT/LIFT, TOP SEAL, ...).
+ *   - Amounts are SIGNED: a negative Net Price ("-59.83", "(59.83)") is a
+ *     credit line and counts NEGATIVE (Weston 2026-10-20 — this supersedes
+ *     the original unsigned read, which silently flipped credits into
+ *     charges; the browser userscript mirrors this parser).
  *   - Missing door: if no door card is detected, the door is reported as missing
  *     (0) — the parser NEVER promotes another card to door. Guessing the door
  *     from the largest price silently hid real door prices (2026-09-24).
@@ -112,7 +116,7 @@ const DOTTED_PRICE_RE = /[0-9][0-9,]*\.[0-9]+/;
 /** Decimal-dropped OCR form: "1191 30" (dollars, whitespace, exactly 2 cent digits). */
 const DROPPED_DECIMAL_RE = /([0-9][0-9,]*)\s+([0-9]{2})(?![0-9])/;
 /** A line that is essentially just a price: "$1,191.30", "1191.30", "1191 30". */
-const PURE_PRICE_LINE_RE = /^\s*\$?\s*[0-9][0-9,]*(\.[0-9]{1,2})?\s*$/;
+const PURE_PRICE_LINE_RE = /^\s*\(?\s*(?:-|\u2212)?\s*\$?\s*[0-9][0-9,]*(\.[0-9]{1,2})?\s*\)?\s*$/;
 /** Fallback numeric run for the trailing-two-digits-as-cents rule. */
 const DIGIT_RUN_RE = /[0-9][0-9,]*/;
 
@@ -168,25 +172,33 @@ function detectHeader(line: string): { label: string; isDoor: boolean } | null {
  * Returns null when no usable number is present.
  */
 function parseNetAmount(afterLabel: string): number | null {
+  // Sign first: a credit prints as "-59.83", a unicode minus, or the
+  // parenthesized "(59.83)". The amount regexes below are unsigned, so
+  // detect the sign from the head of the text and apply it at the end.
+  const lead = afterLabel.replace(/[\u2212\u2013]/g, "-").replace(/^\s*:+/, "");
+  const negative =
+    /^\s*-\s*\$?\s*[0-9]/.test(lead) || /^\s*\(\s*\$?\s*[0-9]/.test(lead);
+  const signed = (n: number | null): number | null =>
+    n === null ? null : negative ? -n : n;
   // 1. Normal dotted form: "1191.30", "1,191.30".
   const dotted = afterLabel.match(DOTTED_PRICE_RE);
   if (dotted) {
     const [intPart, decPart = ""] = dotted[0].replace(/,/g, "").split(".");
     if (!intPart) return null;
-    if (decPart.length === 2) return parseFloat(`${intPart}.${decPart}`);
-    if (decPart.length === 1) return parseFloat(`${intPart}.${decPart}0`);
-    if (decPart.length === 0) return centsFromDigits(intPart);
+    if (decPart.length === 2) return signed(parseFloat(`${intPart}.${decPart}`));
+    if (decPart.length === 1) return signed(parseFloat(`${intPart}.${decPart}0`));
+    if (decPart.length === 0) return signed(centsFromDigits(intPart));
     // 3+ decimals: OCR noise — keep the first two (prices always have 2 decimals).
-    return parseFloat(`${intPart}.${decPart.slice(0, 2)}`);
+    return signed(parseFloat(`${intPart}.${decPart.slice(0, 2)}`));
   }
   // 2. Decimal dropped by OCR: "1191 30".
   const dropped = afterLabel.match(DROPPED_DECIMAL_RE);
   if (dropped) {
-    return parseFloat(`${dropped[1].replace(/,/g, "")}.${dropped[2]}`);
+    return signed(parseFloat(`${dropped[1].replace(/,/g, "")}.${dropped[2]}`));
   }
   // 3. No decimal point at all: trailing two digits are cents ("119130" -> 1191.30).
   const run = afterLabel.match(DIGIT_RUN_RE);
-  if (run) return centsFromDigits(run[0].replace(/,/g, ""));
+  if (run) return signed(centsFromDigits(run[0].replace(/,/g, "")));
   return null;
 }
 
@@ -239,8 +251,8 @@ function optionMatchesCard(option: string, label: string): boolean {
 
 function money(n: number): string {
   return (
-    "$" +
-    n.toLocaleString("en-US", {
+    (n < 0 ? "-$" : "$") +
+    Math.abs(n).toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })

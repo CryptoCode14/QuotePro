@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.7.0
+// @version      1.8.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -119,15 +119,14 @@
   }
 
   function parseMoney(text) {
-    // Matches $1,234.56 / 1234.56 / $45. Like QuotePro's parser
-    // (parseNetAmount in ocrParser.ts), the amount is read UNSIGNED:
-    // the app takes "Net Price: -59.83" as +59.83, and the script must
-    // match the software exactly (Weston, 2026-10-20) — so a printed
-    // credit line counts positive here too, deliberately.
+    // Matches $1,234.56 / 1234.56 / $45, and negatives (-59.83, (59.83)):
+    // iStore prints credit lines as plain negative amounts, and both
+    // this script and the app parser honor them as credits (v1.8.0).
     const t = String(text).replace(/[\u2212\u2013]/g, "-");
     const m = t.match(/(-)?\s*\$?\s*(\()?([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{2})|[0-9]+\.[0-9]{2}|[0-9][0-9,]*)(\))?/);
     if (!m) return null;
-    const n = Number(m[3].replace(/[$,\s]/g, ""));
+    let n = Number(m[3].replace(/[$,\s]/g, ""));
+    if (m[1] || (m[2] && m[4])) n = -n;
     return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
   }
 
@@ -702,7 +701,7 @@
     .qp-dock.qp-dock-v { flex-direction: column; padding: 12px 7px; gap: 9px;
       box-sizing: border-box; min-height: 148px; justify-content: center; }
     .qp-dock.qp-dock-v .qp-dock-text { align-items: center; }
-    .qp-dock.qp-dock-v .qp-dock-label { display: none; }
+    .qp-dock.qp-dock-v .qp-dock-label { font-size: 8.5px; }
     .qp-dock.qp-dock-v .qp-dock-total { font-size: 12.5px; max-width: 78px; text-align: center; }
     .qp-dock .qp-dock-text { position: relative; z-index: 1; display: flex;
       flex-direction: column; align-items: flex-start; gap: 2px; }
@@ -735,8 +734,13 @@
     .qp-dock .qp-dock-sub { position: relative; z-index: 1; font-size: 10.5px;
       color: #9aa0ab; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       max-width: 178px; line-height: 1.25; }
-    .qp-dock.qp-dock-v .qp-dock-margin, .qp-dock.qp-dock-v .qp-dock-sub { display: none; }
-    .qp-dock.qp-dock-v .qp-dock-totalrow { justify-content: center; }
+    .qp-dock.qp-dock-v .qp-dock-text { align-items: center; text-align: center; }
+    .qp-dock.qp-dock-v .qp-dock-margin { font-size: 9.5px; }
+    .qp-dock.qp-dock-v .qp-dock-sub { max-width: 58px; white-space: normal;
+      line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 7;
+      -webkit-box-orient: vertical; }
+    .qp-dock.qp-dock-v .qp-dock-totalrow { flex-direction: column; align-items: center;
+      justify-content: center; gap: 1px; }
     .qp-skin { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none;
       overflow: visible;
       filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)) drop-shadow(0 16px 28px rgba(0,0,0,.38)); }
@@ -822,10 +826,10 @@
       dockVertical = v;
       if (v) {
         dock.classList.add("qp-dock-v");
-        if (dockLenH >= 100) dock.style.height = dockLenH + "px";
+        if (dockLenH >= 100) dock.style.minHeight = dockLenH + "px";
       } else {
         dock.classList.remove("qp-dock-v");
-        dock.style.height = "";
+        dock.style.minHeight = "";
       }
     };
     const dockMark = document.createElement("span");
@@ -932,7 +936,7 @@
       const ch = (L / 2) * (1 - 0.10 * tension) + ext;
       // The shoulder sweep is capped by the body's DEPTH as well as its
       // length, so the fillet can never consume the whole side edge.
-      const dep = Math.min(L * 0.28, S * 0.42, 10 + gap * 0.5 + 14 * b);
+      const dep = Math.min(L * 0.28, S * 0.42, 10 + gap * 0.8 + 18 * b);
       // The body-side handle dives PAST the corner (sA > dep puts the
       // control point beyond the wall line): the curve leaves the body
       // heading straight at the corner and hugs it — a concave meniscus.
@@ -967,6 +971,7 @@
         return out;
       }).join(" ");
     };
+    let skinSig = "";
     const renderSkin = () => {
       const w = dock.offsetWidth, h = dock.offsetHeight;
       if (w < 4 || h < 4) return;
@@ -984,6 +989,15 @@
       else if (edge === "right") gap = Math.max(0, window.innerWidth - (x + w));
       else if (edge === "top") gap = Math.max(0, y);
       else if (edge === "bottom") gap = Math.max(0, window.innerHeight - (y + h));
+      // Quantized repaint gate: rewriting the path forces a full
+      // drop-shadow re-raster; when the geometry has not moved by at
+      // least half a pixel (or 0.01 of bleed/tension), skip every DOM
+      // write. Settle tails and the 1.5s place() sync become free, and
+      // the shadow stops strobing on nearly-still frames.
+      const sig = w + "|" + h + "|" + (edge || "") + "|" + Math.round(gap * 2) +
+        "|" + Math.round((edge ? bleedCur : 0) * 100) + "|" + Math.round((edge ? tensionCur : 0) * 100);
+      if (sig === skinSig) return;
+      skinSig = sig;
       skin.setAttribute("width", Math.round(w + SKIN_PAD * 2));
       skin.setAttribute("height", Math.round(h + SKIN_PAD * 2));
       skin.style.left = -SKIN_PAD + "px";
@@ -1031,7 +1045,7 @@
        velocity-aware rupture past 85px of pull, snap commit inside 24px
        on 70ms dwell or slow movement (instant inside 8px), a 250ms
        re-snap lockout after rupture, and a loop that sleeps at rest. */
-    const BLEED_NEAR = 52, BLEED_FULL = 14, SNAP_ZONE = 24, SNAP_NOW = 8;
+    const BLEED_NEAR = 76, BLEED_FULL = 12, SNAP_ZONE = 30, SNAP_NOW = 8;
     const TEAR_PULL = 100, LOCKOUT_MS = 250;
     const rubber = (x) => (x * 120 * 0.55) / (120 + 0.55 * x);
     let bleedTgt = bleedCur, bleedVel = 0;
@@ -1104,7 +1118,7 @@
       m.last = now;
       const RM = reducedMotion();
       const kPos = m.dragging ? 240 : 330;
-      const zPos = RM ? 1 : (m.dragging ? 0.84 : 0.95);
+      const zPos = RM ? 1 : (m.dragging ? 0.84 : 1.0);
       while (dt > 0) {
         const h = Math.min(dt, 1 / 120);
         dt -= h;
@@ -1113,10 +1127,14 @@
         m.vy += (-kPos * (m.y - m.ty) - cP * m.vy) * h;
         m.x += m.vx * h;
         m.y += m.vy * h;
-        const cB = 2 * (RM ? 1 : 0.68) * Math.sqrt(150);
-        bleedVel += (-150 * (bleedCur - bleedTgt) - cB * bleedVel) * h;
+        // Bleed/tension channel: softer (k=120) and better damped
+        // (z=0.85) than v1.7's k=150/z=0.68 — the old channel RANG after
+        // every drop, pulsing the silhouette for a second (the flicker
+        // Weston reported), and a liquid neck should ooze, not bounce.
+        const cB = 2 * (RM ? 1 : 0.85) * Math.sqrt(120);
+        bleedVel += (-120 * (bleedCur - bleedTgt) - cB * bleedVel) * h;
         bleedCur += bleedVel * h;
-        tensionVel += (-150 * (tensionCur - tensionTgt) - cB * tensionVel) * h;
+        tensionVel += (-120 * (tensionCur - tensionTgt) - cB * tensionVel) * h;
         tensionCur += tensionVel * h;
       }
       bleedCur = Math.max(0, Math.min(1.1, bleedCur));
@@ -1223,7 +1241,7 @@
       bleedTgt = 1 - smooth(BLEED_FULL, BLEED_NEAR, near.gap);
       tensionTgt = 0;
       let tx = desX, ty = desY;
-      const pullIn = bleedTgt * 14;
+      const pullIn = bleedTgt * 22;
       if (near.edge === "left") tx = desX - pullIn;
       if (near.edge === "right") tx = desX + pullIn;
       if (near.edge === "top") ty = desY - pullIn;
@@ -1449,7 +1467,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v1.7.0";
+    verEl.textContent = "QuotePro browser tool v1.8.0";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
@@ -1512,9 +1530,10 @@
       const label = (best.innerText || "").replace(/\s+/g, " ").replace(/[\u2212\u2013]/g, "-").trim();
       const m = label.match(/net price:\s*\$?\s*(-)?\s*(\()?([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})|[0-9]+\.[0-9]{2})(\)?)/i);
       if (!m) continue;
-      const amount = Number(m[3].replace(/,/g, ""));
-      // Read UNSIGNED, mirroring QuotePro's parser exactly (the app
-      // takes a printed credit like -59.83 as +59.83); only $0 is noise.
+      let amount = Number(m[3].replace(/,/g, ""));
+      if (m[1] || (m[2] && m[4])) amount = -amount;
+      // Credits are real lines (negative Net Price, honored in the app
+      // parser too since v1.8.0); only $0 lines are noise.
       if (!Number.isFinite(amount) || amount === 0) continue;
       items.push({ label, amount });
     }
