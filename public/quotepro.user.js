@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.8.0
+// @version      1.9.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -605,8 +605,8 @@
     .qp-panel { position: fixed; z-index: 2147483647; width: 328px; max-height: 86vh;
       border-radius: 20px; display: flex; flex-direction: column; overflow: hidden;
       isolation: isolate; font-size: 13px; line-height: 1.45;
-      transition: opacity .22s var(--ease-out), transform .28s var(--ease-drawer); }
-    .qp-panel.qp-min { opacity: 0; transform: scale(.96); pointer-events: none; }
+      transition: opacity .22s var(--ease-out); }
+    .qp-panel.qp-min { opacity: 0; pointer-events: none; }
     .qp-panel.qp-dragging, .qp-dock.qp-dragging { transition: none; }
     .qp-panel.qp-dragging { box-shadow:
         0 0 0 1px rgba(255,255,255,.10),
@@ -682,6 +682,9 @@
     .qp-res .qp-v { font-weight: 600; font-size: 14px; letter-spacing: -.01em;
       font-variant-numeric: tabular-nums; }
     .qp-res .qp-v.qp-final { color: #7ee2a8; font-size: 18px; letter-spacing: -.02em; }
+    .qp-solvebar { position: sticky; bottom: -14px; margin: 12px -14px -14px;
+      padding: 10px 14px 13px; background: rgba(17,18,21,.94);
+      border-top: 1px solid rgba(255,255,255,.09); z-index: 3; }
     .qp-copy { border: 0; border-radius: 8px; font: inherit; font-size: 11px; font-weight: 600;
       padding: 5px 10px; cursor: pointer; margin-left: 8px; color: rgba(255,255,255,.82);
       background: linear-gradient(180deg, #34363b, #26282c);
@@ -696,7 +699,7 @@
       background: transparent; box-shadow: none;
       cursor: grab; user-select: none; touch-action: none;
       display: flex; flex-direction: row; align-items: center; gap: 11px;
-      transition: opacity .2s var(--ease-out), transform .24s var(--ease-drawer), filter .16s ease; }
+      transition: opacity .2s var(--ease-out), filter .16s ease; }
     .qp-dock::before, .qp-dock::after { display: none; }
     .qp-dock.qp-dock-v { flex-direction: column; padding: 12px 7px; gap: 9px;
       box-sizing: border-box; min-height: 148px; justify-content: center; }
@@ -707,7 +710,7 @@
       flex-direction: column; align-items: flex-start; gap: 2px; }
     .qp-dock:hover { filter: brightness(1.1); }
     .qp-dock:active { cursor: grabbing; }
-    .qp-dock.qp-hidden { opacity: 0; transform: scale(.9); pointer-events: none; }
+    .qp-dock.qp-hidden { opacity: 0; pointer-events: none; }
     .qp-dock .qp-dock-mark { position: relative; z-index: 1; width: 40px; height: 40px;
       border-radius: 14px; flex-shrink: 0; background: #fff; overflow: hidden;
       display: flex; align-items: center; justify-content: center;
@@ -885,6 +888,7 @@
     let engEdge = snappedEdge;
     let bleedCur = snappedEdge ? 1 : 0;
     let tensionCur = 0;
+    let stretchCur = 0, stretchVel = 0, stretchAng = 0;
     let mot = null;
     const clamp01 = (v) => Math.min(1, Math.max(0, v));
     const smooth = (a, b, x) => { const t = clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
@@ -924,37 +928,67 @@
         " Q " + P + " " + n(P + h) + " " + P + " " + n(P + h - R) +
         " L " + P + " " + n(P + R) +
         " Q " + P + " " + P + " " + n(P + R) + " " + P + " Z";
-      if (!edge || gap > 95) return rrect();
+      const b = Math.min(1, Math.max(0, bleed));
+      if (!edge || gap > 95 || b < 0.05) return rrect();
       const side = edge === "left" || edge === "right";
       const L = side ? h : w, S = side ? w : h;
-      const b = Math.min(1, Math.max(0, bleed));
-      // Corner-box fillet: the wall contact extends only a fillet's
-      // worth past the body's ends (ext), and both bezier handles stay
-      // inside that corner box — an earlier proportional patch (1.34x
-      // the body length) ballooned into lobes and beaks past the ends.
-      const ext = (6 + 10 * b) * (1 - 0.5 * tension);
-      const ch = (L / 2) * (1 - 0.10 * tension) + ext;
-      // The shoulder sweep is capped by the body's DEPTH as well as its
-      // length, so the fillet can never consume the whole side edge.
-      const dep = Math.min(L * 0.28, S * 0.42, 10 + gap * 0.8 + 18 * b);
-      // The body-side handle dives PAST the corner (sA > dep puts the
-      // control point beyond the wall line): the curve leaves the body
-      // heading straight at the corner and hugs it — a concave meniscus.
-      // A short handle cuts diagonally across the box and bulges out
-      // into a blob (seen in the second 1.5.0 screenshots).
-      const sA = dep + gap * 0.45;
-      const sB = ext * 0.5 + gap * 0.10;
+      const t = Math.min(1, Math.max(0, tension));
       const uc = L / 2;
+      // Bridge geometry (the QQ sticky-badge construction): a wall
+      // anchor pair and a body anchor pair joined by two quadratics
+      // that share ONE control point at the neck's centre — the shared
+      // control bows both curves into the concave capillary waist a
+      // real liquid neck makes. The contact grows from a droplet tip as
+      // bleed rises; under tension the WALL patch shrinks faster than
+      // the body patch, so the neck pinches at the wall first, the way
+      // a droplet lets go. Wall-side corners flatten as the weld forms.
+      const dockBlend = b * Math.max(0, Math.min(1, 1 - gap / 16));
+      const Rw = Math.max(3, R * (1 - 0.85 * dockBlend));
+      // The neck is its own closed subpath unioned with the body (same
+      // fill — one silhouette, one shadow). Anchoring it on the flat
+      // edge segment alone starved it: the horizontal bar's wall edge
+      // is only 67px long and the corner radii eat most of that, so
+      // the first bridge rendered as a hair-thin spike. The blob's
+      // anchors may spread a few px PAST the body's ends — a meniscus
+      // climbing around the corners — and the wall patch may spread
+      // wider than the body, the way liquid wets a surface.
+      // Tension pinch is nonlinear: a capillary neck at 60% of the
+      // tear pull is a THREAD, not a slightly slimmer patch — linear
+      // shrink factors (0.72/0.45) left a giant leaf stuck to the wall.
+      const wallHalf = (L / 2 + 12) * b * (0.45 + 0.55 * b) * Math.pow(1 - t, 2.6);
+      const bodyHalf = (L / 2 + 6) * b * (0.60 + 0.40 * b) * Math.pow(1 - t, 1.35);
+      // Neck sides are cubics, not quadratics: the shared-control
+      // quadratic lands on the wall at ~40 degrees — a thorn. These
+      // handles make the curve LEAVE along the body's edge (a smooth
+      // shoulder) and ARRIVE along the wall (a wetting flare, contact
+      // angle ~0), with the concave waist falling out of the S-curves.
+      // Handles scale with the neck's LENGTH (the gap), capped by the
+      // patch they flare from. Scaling them with the anchor halves
+      // instead threw 100px+ handles on a 13px neck and the S-curves
+      // wrapped the whole bar into a lens; fixed minimums dwarfed a
+      // newborn tongue the same way from the other side.
+      const sh1 = Math.min(gap * 0.6, bodyHalf * 0.45 + 2);
+      const sh2 = Math.min(gap * 0.6, wallHalf * 0.45 + 2);
       const seg = [];
-      seg.push(["M", 0, dep]);
-      seg.push(["C", 0, dep - sA, uc - ch - sB, -gap, uc - ch, -gap]);
-      seg.push(["L", uc + ch, -gap]);
-      seg.push(["C", uc + ch + sB, -gap, L, dep - sA, L, dep]);
+      seg.push(["M", Rw, 0]);
+      seg.push(["L", L - Rw, 0]);
+      seg.push(["Q", L, 0, L, Rw]);
       seg.push(["L", L, S - R]);
       seg.push(["Q", L, S, L - R, S]);
       seg.push(["L", R, S]);
       seg.push(["Q", 0, S, 0, S - R]);
+      seg.push(["L", 0, Rw]);
+      seg.push(["Q", 0, 0, Rw, 0]);
       seg.push(["Z"]);
+      if (gap > 0.5) {
+        seg.push(["M", uc - bodyHalf, 0]);
+        seg.push(["C", uc - bodyHalf - sh1, -gap * 0.15,
+          uc - wallHalf - sh2, -gap, uc - wallHalf, -gap]);
+        seg.push(["L", uc + wallHalf, -gap]);
+        seg.push(["C", uc + wallHalf + sh2, -gap,
+          uc + bodyHalf + sh1, -gap * 0.15, uc + bodyHalf, 0]);
+        seg.push(["Z"]);
+      }
       const toXY = (u, v) => {
         if (edge === "left") return [P + v, P + u];
         if (edge === "right") return [P + w - v, P + u];
@@ -972,6 +1006,7 @@
       }).join(" ");
     };
     let skinSig = "";
+    let skinTfSig = "";
     const renderSkin = () => {
       const w = dock.offsetWidth, h = dock.offsetHeight;
       if (w < 4 || h < 4) return;
@@ -994,6 +1029,22 @@
       // least half a pixel (or 0.01 of bleed/tension), skip every DOM
       // write. Settle tails and the 1.5s place() sync become free, and
       // the shadow stops strobing on nearly-still frames.
+      // Velocity-viscosity transform: its own coarse gate so it can
+      // update on frames where the path itself does not change.
+      const sNow = (!snappedEdge && bleedCur < 0.05 && mot && mot.el === dock) ? stretchCur : 0;
+      const tfKey = Math.round(sNow * 40) + "|" + Math.round(stretchAng * 8);
+      if (tfKey !== skinTfSig) {
+        skinTfSig = tfKey;
+        if (sNow < 0.004) skinPath.removeAttribute("transform");
+        else {
+          const cx = SKIN_PAD + w / 2, cy = SKIN_PAD + h / 2;
+          const deg = stretchAng * 180 / Math.PI;
+          skinPath.setAttribute("transform",
+            "translate(" + cx + " " + cy + ") rotate(" + deg.toFixed(1) +
+            ") scale(" + (1 + sNow).toFixed(3) + " " + (1 / Math.sqrt(1 + sNow)).toFixed(3) +
+            ") rotate(" + (-deg).toFixed(1) + ") translate(" + (-cx) + " " + (-cy) + ")");
+        }
+      }
       const sig = w + "|" + h + "|" + (edge || "") + "|" + Math.round(gap * 2) +
         "|" + Math.round((edge ? bleedCur : 0) * 100) + "|" + Math.round((edge ? tensionCur : 0) * 100);
       if (sig === skinSig) return;
@@ -1127,15 +1178,40 @@
         m.vy += (-kPos * (m.y - m.ty) - cP * m.vy) * h;
         m.x += m.vx * h;
         m.y += m.vy * h;
-        // Bleed/tension channel: softer (k=120) and better damped
-        // (z=0.85) than v1.7's k=150/z=0.68 — the old channel RANG after
-        // every drop, pulsing the silhouette for a second (the flicker
-        // Weston reported), and a liquid neck should ooze, not bounce.
-        const cB = 2 * (RM ? 1 : 0.85) * Math.sqrt(120);
-        bleedVel += (-120 * (bleedCur - bleedTgt) - cB * bleedVel) * h;
+        // Shape channels (2026-10-20 research pass): deformation in
+        // admired implementations runs much wobblier than position
+        // (react-spring "wobbly" is k=180/z~0.45; the position channel
+        // here stays critically damped). Bleed k=150 z=0.62 oozes with
+        // a hint of life; tension k=170 z=0.8 tracks the pull crisply.
+        // The old flicker came from the POSITION channel ringing and
+        // from unquantized repaints — both fixed separately (z=1.0
+        // settle + the renderSkin signature gate), so the shape is
+        // free to be liquid again.
+        const cBl = 2 * (RM ? 1 : 0.62) * Math.sqrt(150);
+        bleedVel += (-150 * (bleedCur - bleedTgt) - cBl * bleedVel) * h;
         bleedCur += bleedVel * h;
-        tensionVel += (-120 * (tensionCur - tensionTgt) - cB * tensionVel) * h;
+        const cTn = 2 * (RM ? 1 : 0.8) * Math.sqrt(170);
+        tensionVel += (-170 * (tensionCur - tensionTgt) - cTn * tensionVel) * h;
         tensionCur += tensionVel * h;
+        // Velocity viscosity (free flight only): the silhouette
+        // stretches along the motion, volume-preserving (width grows
+        // by 1+s, depth by 1/sqrt(1+s)), easing in and out on its own
+        // slow channel — the drag feels like pulling something soft.
+        if (m.el === dock) {
+          const sp = Math.hypot(m.vx, m.vy);
+          const sTgt = (!snappedEdge && bleedCur < 0.05 && !RM)
+            ? Math.min(0.16, Math.max(0, (sp - 350) / 5200)) : 0;
+          const cS = 2 * 0.9 * Math.sqrt(90);
+          stretchVel += (-90 * (stretchCur - sTgt) - cS * stretchVel) * h;
+          stretchCur += stretchVel * h;
+          if (sTgt > 0.01) {
+            const target = Math.atan2(m.vy, m.vx);
+            let da = target - stretchAng;
+            while (da > Math.PI) da -= 2 * Math.PI;
+            while (da < -Math.PI) da += 2 * Math.PI;
+            stretchAng += da * Math.min(1, h * 14);
+          }
+        }
       }
       bleedCur = Math.max(0, Math.min(1.1, bleedCur));
       tensionCur = Math.max(0, Math.min(1, tensionCur));
@@ -1146,7 +1222,8 @@
       const rest = !m.dragging && !m.hold &&
         Math.abs(m.x - m.tx) < 0.5 && Math.abs(m.y - m.ty) < 0.5 &&
         Math.abs(m.vx) < 10 && Math.abs(m.vy) < 10 &&
-        Math.abs(bleedCur - bleedTgt) < 0.01 && Math.abs(tensionCur - tensionTgt) < 0.01;
+        Math.abs(bleedCur - bleedTgt) < 0.01 && Math.abs(tensionCur - tensionTgt) < 0.01 &&
+        (m.el !== dock || Math.abs(stretchCur) < 0.01);
       if (rest) {
         mot = null;
         busyEls.delete(m.el);
@@ -1172,6 +1249,11 @@
       engEdge = edge;
       bleedTgt = 1;
       tensionTgt = 0;
+      // Suction: a kick to the bleed channel as capture lands — the
+      // contact patch blooms for a beat (overshoot past 1, clamped at
+      // 1.1) and settles, the surface-tension "gulp" of a droplet
+      // merging with the wall.
+      bleedVel += 2.6;
       const fp = flushPos(edge, m.tx, m.ty, el.offsetWidth, el.offsetHeight);
       m.tx = fp.x;
       m.ty = fp.y;
@@ -1467,7 +1549,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v1.8.0";
+    verEl.textContent = "QuotePro browser tool v1.9.0";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
@@ -2100,7 +2182,10 @@
     const calcBtn = document.createElement("button");
     calcBtn.className = "qp-btn";
     calcBtn.textContent = "Solve Pricing";
-    body.appendChild(calcBtn);
+    const solveBar = document.createElement("div");
+    solveBar.className = "qp-solvebar";
+    solveBar.appendChild(calcBtn);
+    body.appendChild(solveBar);
 
     const res = document.createElement("div");
     res.className = "qp-res";
@@ -2158,6 +2243,7 @@
             installation: data.installation,
             fuel: data.fuel,
             gap: data.gap,
+            breakdown: data.breakdown || null,
             at: Date.now(),
             texts: estTexts.getTexts(),
           });
@@ -2189,6 +2275,54 @@
       }, ms));
   }
 
+  // The app's quote ledger (QuoteRail), line for line: same labels, same
+  // order, values straight from the solve response's breakdown object.
+  function ledgerEl(bd, inst, fuel) {
+    if (!bd) return null;
+    const wrap = document.createElement("div");
+    wrap.style.display = "none";
+    const lines = [
+      ["Total materials", bd.totalMaterials],
+      ["After multiplier", bd.afterMult],
+      ["Overhead", bd.overhead],
+      ["40% factor", bd.f04],
+      ["Subtotal", bd.subBefore],
+      ["Installation", inst],
+      ["Fuel & travel", fuel],
+      ["10% markup", typeof bd.subAfter === "number" ? bd.subAfter * 0.1 : null],
+      ["Grand total", bd.grandTotal],
+      ["Expenses", bd.expenses],
+      ["Net profit", bd.net],
+    ];
+    lines.forEach(([k, v]) => {
+      if (typeof v !== "number") return;
+      const div = document.createElement("div");
+      div.className = "qp-rrow";
+      const left = document.createElement("span");
+      left.className = "qp-k";
+      left.textContent = k;
+      const right = document.createElement("span");
+      right.className = "qp-v";
+      right.textContent = fmt$(v);
+      div.appendChild(left);
+      div.appendChild(right);
+      wrap.appendChild(div);
+    });
+    const toggle = document.createElement("button");
+    toggle.className = "qp-copy";
+    toggle.textContent = "Breakdown \u25b8";
+    toggle.style.margin = "6px 0 2px";
+    toggle.addEventListener("click", () => {
+      const open = wrap.style.display !== "none";
+      wrap.style.display = open ? "none" : "block";
+      toggle.textContent = open ? "Breakdown \u25b8" : "Breakdown \u25be";
+    });
+    const box = document.createElement("div");
+    box.appendChild(toggle);
+    box.appendChild(wrap);
+    return box;
+  }
+
   function renderResults(res, data, okMsg) {
     res.innerHTML = "";
     const rows = [
@@ -2201,6 +2335,8 @@
       rows.push({ k: "Installation (solved)", v: data.installation, raw: data.installation, cls: "" });
     if (typeof data.fuel === "number")
       rows.push({ k: "Fuel & travel (solved)", v: data.fuel, raw: data.fuel, cls: "" });
+    if (typeof data.gap === "number")
+      rows.push({ k: "Gap vs double-cost", v: data.gap, raw: data.gap, cls: "" });
     rows.forEach((r) => {
       const div = document.createElement("div");
       div.className = "qp-rrow";
@@ -2223,6 +2359,8 @@
       div.appendChild(right);
       res.appendChild(div);
     });
+    const led = ledgerEl(data.breakdown, data.installation, data.fuel);
+    if (led) res.appendChild(led);
     res.style.display = "block";
     okMsg.textContent = "Saved \u2014 switch to the ServiceTitan tab and hit Fill.";
     okMsg.style.display = "block";
@@ -2270,6 +2408,184 @@
     return parts.join(" > ");
   }
 
+  /* --------------- field mapping v2: descriptors + scoring --------------
+   * v1 stored a bare CSS selector for whatever element was on top of the
+   * pick click. In ServiceTitan's line-item editor the quantity / cost /
+   * price inputs are structurally identical wrappers, so those selectors
+   * converge — querySelector's first match won and cost/price fills landed
+   * in QUANTITY. v2 stores a descriptor (label / column header, aria,
+   * name, id, placeholder + the selector) and at fill time scores EVERY
+   * editable on the page against it. It refuses to guess on a tie,
+   * verifies by readback, and handles click-to-edit cells (ST's
+   * description popup) by opening them first. Legacy v1 string maps are
+   * still honored. */
+  const EDITABLE_SEL = 'input:not([type="hidden"]), textarea, select, [contenteditable=""], [contenteditable="true"]';
+
+  function isEditableEl(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const tag = el.tagName;
+    if (tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (tag === "INPUT") return el.type !== "hidden" && el.type !== "checkbox" && el.type !== "radio";
+    return el.isContentEditable === true;
+  }
+  function normLabel(s) {
+    return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  }
+  function labelTextFor(el) {
+    try {
+      if (el.labels && el.labels.length) {
+        const t = normLabel(el.labels[0].textContent);
+        if (t) return t;
+      }
+    } catch (e) { /* noop */ }
+    const al = normLabel(el.getAttribute && el.getAttribute("aria-label"));
+    if (al) return al;
+    const cell = el.closest ? (el.closest("td") || el.closest('[role="gridcell"]')) : null;
+    if (cell && cell.parentElement) {
+      const idx = Array.prototype.indexOf.call(cell.parentElement.children, cell);
+      const table = cell.closest("table");
+      if (table && idx >= 0) {
+        const ths = table.querySelectorAll("thead th, thead td");
+        if (ths[idx]) { const t = normLabel(ths[idx].textContent); if (t) return t; }
+      }
+      const grid = cell.closest('[role="grid"], [role="treegrid"]');
+      if (grid && idx >= 0) {
+        const heads = grid.querySelectorAll('[role="columnheader"]');
+        if (heads[idx]) { const t = normLabel(heads[idx].textContent); if (t) return t; }
+      }
+    }
+    // Group walk: the field's own wrapper group (the smallest ancestor
+    // holding at most one editable) almost always carries its caption —
+    // a <label>, a class-hinted caption, or simply the last short text
+    // element before the field ("Quantity" / "Cost" / "Price" spans in
+    // ST-style editors). Take the closest such group that yields one.
+    let cur = el.parentElement, hops = 0;
+    while (cur && hops < 9 && cur !== document.body) {
+      const dl = normLabel(cur.getAttribute && cur.getAttribute("data-label"));
+      if (dl) return dl;
+      let edCount = 0;
+      try { edCount = cur.querySelectorAll(EDITABLE_SEL).length; } catch (e) { edCount = 99; }
+      if (edCount <= 1 && cur.querySelectorAll) {
+        const all = cur.querySelectorAll("label");
+        for (let i = 0; i < all.length; i++) {
+          if (!all[i].contains(el)) {
+            const t = normLabel(all[i].textContent);
+            if (t && t.length <= 40) return t;
+          }
+        }
+        const walker = document.createTreeWalker(cur, NodeFilter.SHOW_ELEMENT);
+        let node, lastText = "";
+        while ((node = walker.nextNode())) {
+          if (node === el) break;
+          if (node.contains(el) || isEditableEl(node)) continue;
+          const t = normLabel(node.children.length === 0 ? node.textContent : "");
+          if (t && t.length <= 30) lastText = t;
+        }
+        if (lastText) return lastText;
+      }
+      cur = cur.parentElement; hops++;
+    }
+    return normLabel(el.getAttribute && el.getAttribute("placeholder")) || "";
+  }
+  function describeField(el, openerEl) {
+    const d = { v: 2 };
+    if (el) {
+      d.sel = buildSelector(el);
+      d.tag = el.tagName.toLowerCase();
+      d.type = (el.getAttribute && el.getAttribute("type")) || "";
+      d.id = el.id || "";
+      d.name = (el.getAttribute && el.getAttribute("name")) || "";
+      d.aria = (el.getAttribute && el.getAttribute("aria-label")) || "";
+      d.ph = (el.getAttribute && el.getAttribute("placeholder")) || "";
+      d.label = labelTextFor(el);
+      if (el.readOnly || el.disabled) d.readonly = 1;
+    }
+    if (openerEl) {
+      d.openerSel = buildSelector(openerEl);
+      if (!d.label) d.label = labelTextFor(openerEl);
+    }
+    return d;
+  }
+  // Resolve a stored descriptor to a live element. Returns { el, how },
+  // { ambiguous: 1 }, or {} (not found).
+  function resolveField(desc) {
+    if (!desc) return {};
+    if (typeof desc === "string") desc = { v: 1, sel: desc };
+    let direct = null;
+    if (desc.sel) {
+      let matches = [];
+      try { matches = Array.prototype.slice.call(document.querySelectorAll(desc.sel)); } catch (e) { matches = []; }
+      if (matches.length === 1 && isEditableEl(matches[0])) direct = matches[0];
+      else if (matches.length > 1) {
+        const eds = matches.filter(isEditableEl);
+        if (eds.length === 1) direct = eds[0];
+      }
+    }
+    if (direct && desc.v === 1) return { el: direct, how: "selector" };
+    const cands = Array.prototype.slice.call(document.querySelectorAll(EDITABLE_SEL))
+      .filter((c) => c.closest && !c.closest("#qp-host"));
+    let best = null, bestScore = -1, second = -1;
+    cands.forEach((c) => {
+      let s = 0;
+      if (direct && c === direct) s += 100;
+      if (desc.id && c.id && c.id === desc.id) s += 90;
+      if (desc.aria && c.getAttribute("aria-label") === desc.aria) s += 80;
+      if (desc.label) {
+        const cl = labelTextFor(c);
+        if (cl && cl === desc.label) s += 85;
+        else if (cl && (cl.indexOf(desc.label) >= 0 || desc.label.indexOf(cl) >= 0)) s += 45;
+      }
+      if (desc.name && c.getAttribute("name") === desc.name) s += 70;
+      if (desc.ph && c.getAttribute("placeholder") === desc.ph) s += 60;
+      if (desc.tag && c.tagName.toLowerCase() === desc.tag) s += 5;
+      if (s > bestScore) { second = bestScore; bestScore = s; best = c; }
+      else if (s > second) second = s;
+    });
+    if (!best || bestScore < 40) return direct ? { el: direct, how: "selector" } : {};
+    if (bestScore - second < 15 && bestScore < 100) return { ambiguous: 1 };
+    return { el: best, how: "score " + bestScore };
+  }
+  function readbackOk(el, want) {
+    if (!el) return false;
+    const got = el.isContentEditable ? (el.innerText || el.textContent || "") : (el.value != null ? el.value : "");
+    const norm = (s) => String(s).replace(/[$,\s]/g, "");
+    if (norm(got) === norm(want)) return true;
+    const g = parseFloat(norm(got)), w = parseFloat(norm(want));
+    return !isNaN(g) && !isNaN(w) && Math.abs(g - w) < 0.005;
+  }
+  // Fill via a descriptor; handles the click-to-edit opener flow. Calls
+  // done(ok, detail) — detail says where it landed or why not.
+  function fillByDescriptor(desc, value, isText, done) {
+    const r = resolveField(desc);
+    const doFillEl = (el) => {
+      const ok = isText ? fillTextField(el, value) : (fillField(el, value) && readbackOk(el, value));
+      const lab = (desc && desc.label) || "";
+      done(!!ok, ok ? ('into "' + (lab || el.tagName.toLowerCase()) + '"') : "value did not stick \u2014 use Copy");
+    };
+    if (r.el && !r.el.readOnly && !r.el.disabled) { doFillEl(r.el); return; }
+    if (r.ambiguous) { done(false, "two fields look alike \u2014 re-pick this one"); return; }
+    let opener = r.el || null;
+    if (!opener && desc && desc.openerSel) {
+      try { opener = document.querySelector(desc.openerSel); } catch (e) { opener = null; }
+    }
+    if (!opener) { done(false, "field not found \u2014 re-pick it"); return; }
+    const before = new Set(Array.prototype.slice.call(document.querySelectorAll(EDITABLE_SEL)));
+    try { opener.click(); } catch (e) { /* noop */ }
+    let tries = 0;
+    const poll = () => {
+      tries++;
+      if (isEditableEl(opener) && !opener.readOnly && !opener.disabled) { doFillEl(opener); return; }
+      const fresh = Array.prototype.slice.call(document.querySelectorAll(EDITABLE_SEL))
+        .filter((c) => !before.has(c) && c.closest && !c.closest("#qp-host") &&
+          (c.offsetParent !== null || c.getClientRects().length));
+      const target = fresh.find((c) => !c.readOnly && !c.disabled) || fresh[0];
+      if (target) { doFillEl(target); return; }
+      if (tries < 12) setTimeout(poll, 120);
+      else done(false, "clicked the field but no editor opened \u2014 open it, then Fill");
+    };
+    setTimeout(poll, 130);
+  }
+
   function isStEstimatePage() {
     return /#\/estimate\//.test(location.hash || "");
   }
@@ -2297,11 +2613,16 @@
         note.textContent =
           "Last calculation (" + when + "): dealer " + fmt$(last.dealer_cost_total) +
           " \u00b7 double " + fmt$(last.double_cost) +
-          " \u00b7 final " + fmt$(last.final_price) + ".";
+          " \u00b7 final " + fmt$(last.final_price) +
+          (typeof last.gap === "number" ? " \u00b7 gap " + fmt$(last.gap) : "") + ".";
       } else {
         note.textContent = "No calculation saved yet \u2014 run Calculate on the iStore tab first.";
       }
       body.appendChild(note);
+      if (last && last.breakdown) {
+        const led = ledgerEl(last.breakdown, last.installation, last.fuel);
+        if (led) body.appendChild(led);
+      }
 
       const onEstimate = isStEstimatePage();
       if (!onEstimate) {
@@ -2322,19 +2643,19 @@
           return;
         }
         const map = getFieldMap();
-        const missing = [];
-        let filled = 0;
+        const results = [];
+        let pending = keys.length;
+        const finishOne = () => {
+          if (--pending === 0) status.textContent = results.join(" ") + " Verify the totals, then save.";
+        };
         keys.forEach((k) => {
-          const sel = map[k.key];
-          const el = sel ? document.querySelector(sel) : null;
-          if (!el) { missing.push(k.label + " (no field picked)"); return; }
-          if (fillField(el, last[k.key])) filled++;
-          else missing.push(k.label + " (set failed)");
+          const desc = map[k.key];
+          if (!desc) { results.push(k.label + ": not mapped."); finishOne(); return; }
+          fillByDescriptor(desc, last[k.key], false, (ok, detail) => {
+            results.push(k.label + (ok ? " filled " + detail + "." : ": " + detail + "."));
+            finishOne();
+          });
         });
-        status.textContent =
-          "Filled " + filled + " of " + keys.length + "." +
-          (missing.length ? " Missing: " + missing.join(", ") + "."
-                          : " Verify the totals, then save the estimate.");
       };
 
       const fillAll = document.createElement("button");
@@ -2353,11 +2674,50 @@
           "z-index:2147483646;background:#16181d;color:#fff;padding:8px 14px;border-radius:8px;" +
           "font:13px/1.4 sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.4);pointer-events:none;";
         tip.textContent = 'Click the "' + k.label + '" field on the page (Esc to cancel)';
+        // Live hover highlight: outline what a click would map, with the
+        // label the descriptor will record, so a pick is never blind.
+        const hl = document.createElement("div");
+        hl.style.cssText = "position:fixed;z-index:2147483645;pointer-events:none;display:none;" +
+          "border:2px solid #2f7bff;border-radius:6px;background:rgba(47,123,255,.10);";
+        document.body.appendChild(hl);
+        const onMove = (e) => {
+          const t = e.target;
+          if (!t || t.id === "qp-host" || (t.closest && (t.closest("#qp-host") || t.closest("#qp-pick-tip")))) {
+            hl.style.display = "none";
+            return;
+          }
+          let ed = null;
+          if (isEditableEl(t)) ed = t;
+          else if (t.closest) {
+            const lab = t.closest("label");
+            if (lab && lab.control && isEditableEl(lab.control)) ed = lab.control;
+            if (!ed) {
+              const cell = t.closest("td, [role='gridcell']") || t;
+              const inner = cell.querySelectorAll ? cell.querySelectorAll(EDITABLE_SEL) : [];
+              if (inner.length === 1) ed = inner[0];
+            }
+          }
+          const target = ed || t;
+          const r = target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+          if (!r || (!r.width && !r.height)) { hl.style.display = "none"; return; }
+          hl.style.display = "block";
+          hl.style.left = (r.left - 3) + "px";
+          hl.style.top = (r.top - 3) + "px";
+          hl.style.width = (r.width + 6) + "px";
+          hl.style.height = (r.height + 6) + "px";
+          const lab = labelTextFor(target);
+          tip.textContent = lab
+            ? 'Click to map "' + k.label + '" \u2192 "' + lab + '" (Esc to cancel)'
+            : 'Click to map "' + k.label + '" here (Esc to cancel)';
+        };
+        document.addEventListener("pointermove", onMove, true);
         const stop = () => {
           tip.remove();
+          hl.remove();
           document.body.style.cursor = "";
           document.removeEventListener("keydown", onKey, true);
           document.removeEventListener("click", onClick, true);
+          document.removeEventListener("pointermove", onMove, true);
           pickBtn.textContent = getFieldMap()[k.key] ? "Re-pick" : "Pick field";
           pickBtn.disabled = false;
           if (cancelPick) cancelPick = null;
@@ -2372,12 +2732,33 @@
           if (t && (t.id === "qp-host" || (t.closest && (t.closest("#qp-host") || t.closest("#qp-pick-tip"))))) return;
           e.preventDefault();
           e.stopPropagation();
-          const sel = buildSelector(t);
-          if (sel) {
+          // Resolve the click to the actual editable control when there
+          // is one; a click on a display cell maps the cell as an opener
+          // (ServiceTitan opens an editor for it at fill time).
+          let ed = null, opener = null;
+          if (isEditableEl(t)) ed = t;
+          else if (t.closest) {
+            const lab = t.closest("label");
+            if (lab && lab.control && isEditableEl(lab.control)) ed = lab.control;
+            if (!ed) {
+              const ce = t.closest('[contenteditable="true"], [contenteditable=""]');
+              if (ce) ed = ce;
+            }
+            if (!ed) {
+              const cell = t.closest("td, [role='gridcell']") || t;
+              const inner = cell.querySelectorAll ? cell.querySelectorAll(EDITABLE_SEL) : [];
+              if (inner.length === 1) ed = inner[0];
+            }
+            if (!ed) opener = t;
+          }
+          const desc = describeField(ed, ed ? null : opener);
+          if (desc.sel || desc.openerSel) {
             const map = GM_getValue(STORE.fieldMap, {});
-            map[k.key] = sel;
+            map[k.key] = desc;
             GM_setValue(STORE.fieldMap, map);
-            status.textContent = k.label + " mapped. Click Fill to test it.";
+            status.textContent = k.label + " mapped" +
+              (ed ? (desc.label ? ' ("' + desc.label + '")' : "") + ". Click Fill to test it."
+                  : " (opens an editor \u2014 Fill will open it).");
           }
           stop();
           renderRows();
@@ -2399,8 +2780,17 @@
           row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:6px;" +
             "padding:6px 0;border-bottom:1px dashed #262a31;";
           const lab = document.createElement("span");
-          lab.style.cssText = "color:#9aa0ab;font-size:12px;";
-          lab.textContent = k.label + " (" + fmt$(last[k.key]) + ")" + (map[k.key] ? "" : " \u2014 not mapped");
+          lab.style.cssText = "display:flex;flex-direction:column;gap:1px;min-width:0;";
+          const ln = document.createElement("span");
+          ln.style.cssText = "color:#c9cdd6;font-size:12px;font-weight:600;";
+          ln.textContent = k.label;
+          const lv = document.createElement("span");
+          const mapped = !!map[k.key];
+          lv.style.cssText = "font-size:11px;font-variant-numeric:tabular-nums;" +
+            (mapped ? "color:#8a919e;" : "color:#d8a24a;");
+          lv.textContent = fmt$(last[k.key]) + (mapped ? " \u00b7 mapped" : " \u00b7 not mapped");
+          lab.appendChild(ln);
+          lab.appendChild(lv);
           const btns = document.createElement("span");
           btns.style.cssText = "display:flex;gap:6px;flex-shrink:0;";
           const mk = (txt, fn) => {
@@ -2439,11 +2829,13 @@
         });
         const doFillText = (label, tkey, text) => {
           const map = getFieldMap();
-          const sel = map[tkey];
-          const el = sel ? document.querySelector(sel) : null;
-          if (!el) { status.textContent = label + ": pick a field first (Pick field)."; return; }
-          if (fillTextField(el, text)) status.textContent = label + " filled \u2014 verify it registered.";
-          else status.textContent = label + ": fill may not have registered \u2014 use Copy.";
+          const desc = map[tkey];
+          if (!desc) { status.textContent = label + ": pick a field first (Pick field)."; return; }
+          fillByDescriptor(desc, text, true, (ok, detail) => {
+            status.textContent = ok
+              ? label + " filled " + detail + " \u2014 verify it registered."
+              : label + ": " + detail + ".";
+          });
         };
         tkeys.forEach((tk) => {
           if (!tk.text) return;
