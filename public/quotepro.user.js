@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      2.1.0
+// @version      2.1.1
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -871,23 +871,28 @@
       if (!done) { morph.raf = requestAnimationFrame(morphStep); return; }
       // The target was measured in a single synchronous instant at
       // flip time; if the live natural size has drifted from it (a
-      // retarget mid-flight, a floor change), do NOT unpin into a
-      // jump — retarget the spring to the natural size and settle
-      // onto it. Unpin/read/re-pin inside one frame: no paint of the
-      // unpinned state can occur.
+      // retarget mid-flight), do NOT unpin into a jump — retarget the
+      // spring to the natural size and settle onto it. The natural
+      // size must be read in the TRUE resting configuration, floor
+      // included: reading it with the floor zeroed retargets the
+      // spring onto the bare content height (~170), and restoring
+      // the floor at the end then lands as a late ~84px jump — the
+      // v2.1.0 bigger/smaller bug. Unpin/read/re-pin inside one
+      // frame: no paint of the unpinned state can occur.
+      dock.style.minHeight = (dockVertical && dockLenH >= 100) ? dockLenH + "px" : "";
       dock.style.width = "";
       dock.style.height = "";
       const natW = dock.offsetWidth, natH = dock.offsetHeight;
       if (Math.abs(natW - morph.w) > 1.5 || Math.abs(natH - morph.h) > 1.5) {
         dock.style.width = morph.w.toFixed(1) + "px";
         dock.style.height = morph.h.toFixed(1) + "px";
+        dock.style.minHeight = "0px";
         morph.tw = natW;
         morph.th = natH;
         morph.raf = requestAnimationFrame(morphStep);
         return;
       }
       morph = null;
-      dock.style.minHeight = (dockVertical && dockLenH >= 100) ? dockLenH + "px" : "";
       dockFace.style.opacity = "";
       dockFace.style.filter = "";
       dockFace.style.transform = "";
@@ -1510,10 +1515,27 @@
         }
         // Release-to-snap (spec §5.3): letting go while the meniscus
         // is engaged past 0.35 snaps the element flush to that edge.
-        if (bleedCur > 0.35 && m.nearEdge) {
-          doSnap(el, m, m.nearEdge);
-          if (m.snapCollapse) { m.snapCollapse = false; collapseToTab(); }
-          return;
+        // The engagement is judged from the LIVE drop geometry, never
+        // from bleedCur: the bleed spring lags ~300ms, so after a
+        // tear-rupture it still reads > 0.35 while the element sits
+        // 150px out — checking it re-snapped torn docks straight back
+        // to the wall (v2.1.0 bug).
+        if (m.nearEdge) {
+          let dxp = m.x, dyp = m.y;
+          if (e) { dxp = e.clientX - d.gx; dyp = e.clientY - d.gy; }
+          const ew = el.offsetWidth, eh = el.offsetHeight;
+          const gapNow = m.nearEdge === "left" ? dxp
+            : m.nearEdge === "right" ? window.innerWidth - (dxp + ew)
+            : m.nearEdge === "top" ? dyp
+            : window.innerHeight - (dyp + eh);
+          const bleedNow = gapNow >= BLEED_DIST ? 0
+            : gapNow <= SNAP_DIST ? 1
+            : Math.pow(1 - (Math.max(0, gapNow) - SNAP_DIST) / (BLEED_DIST - SNAP_DIST), 1.2);
+          if (bleedNow > 0.35) {
+            doSnap(el, m, m.nearEdge);
+            if (m.snapCollapse) { m.snapCollapse = false; collapseToTab(); }
+            return;
+          }
         }
         bleedTgt = 0;
         engEdge = null;
@@ -1647,7 +1669,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v2.1.0";
+    verEl.textContent = "QuotePro browser tool v2.1.1";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
