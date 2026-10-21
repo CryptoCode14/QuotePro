@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      2.1.3
+// @version      2.1.4
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -1265,6 +1265,16 @@
         const cTn = 2 * (RM ? 1 : 0.8) * Math.sqrt(170);
         tensionVel += (-170 * (tensionCur - tensionTgt) - cTn * tensionVel) * h;
         tensionCur += tensionVel * h;
+        // The shape channels live in [0, 1]. Left alone, the wobbly
+        // bleed spring rings THROUGH zero as it decays: the negative
+        // values invert the flare geometry for a frame at a time, and
+        // every re-crossing of the silhouette's bleed gate flips the
+        // neck off/on — the blink Weston saw as the dock separates.
+        // Land on the bound and stick instead of ringing through it.
+        if (bleedCur < 0) { bleedCur = 0; if (bleedVel < 0) bleedVel = 0; }
+        if (bleedCur > 1) { bleedCur = 1; if (bleedVel > 0) bleedVel = 0; }
+        if (tensionCur < 0) { tensionCur = 0; if (tensionVel < 0) tensionVel = 0; }
+        if (tensionCur > 1) { tensionCur = 1; if (tensionVel > 0) tensionVel = 0; }
         // Velocity viscosity is OFF: Weston's specification defines
         // the silhouette purely from position, bleed and tension —
         // no velocity deformation. The channel is kept (target 0) so
@@ -1357,6 +1367,14 @@
           anchor.edge = null;
           tensionTgt = 0;
           bleedTgt = 0;
+          // The break is instant and final: zero the shape channels
+          // themselves, not just their targets. Letting the membrane
+          // decay on its spring left a ghost tongue that stuttered
+          // across the silhouette gate as the dock flew away.
+          bleedCur = 0;
+          bleedVel = 0;
+          tensionCur = 0;
+          tensionVel = 0;
           engEdge = null;
           m.baseDesX = null;
           m.baseDesY = null;
@@ -1655,7 +1673,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v2.1.3";
+    verEl.textContent = "QuotePro browser tool v2.1.4";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
