@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      2.1.6
+// @version      2.1.7
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -267,13 +267,30 @@
     } catch (e) { /* noop */ }
     let ok = false;
     try { ok = document.execCommand("insertText", false, str); } catch (e) { ok = false; }
-    if (!ok) {
-      try { el.textContent = str; ok = true; } catch (e) { /* noop */ }
-    }
     el.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
     el.dispatchEvent(new Event("change", { bubbles: true, cancelable: true }));
-    const cur = (el.innerText != null ? el.innerText : el.textContent) || "";
-    return cur.replace(/\s+$/, "") === str.replace(/\s+$/, "") || ok;
+    const readLines = () => ((el.innerText != null ? el.innerText : el.textContent) || "")
+      .split("\n").map((s) => s.trim());
+    const wantLines = str.split("\n").map((s) => s.trim());
+    const stuck = () => {
+      const g = readLines();
+      return wantLines.every((w, i) => (g[i] || "") === w) && g.length >= wantLines.length;
+    };
+    if (!stuck()) {
+      // insertText mangles multi-line text in some rich editors; ST
+      // itself stores a description as one <div> per line, so rebuild
+      // it that way and let the editor's own input handling take it.
+      try {
+        el.innerHTML = "";
+        wantLines.forEach((ln) => {
+          const d = document.createElement("div");
+          d.textContent = ln || " ";
+          el.appendChild(d);
+        });
+        el.dispatchEvent(new Event("input", { bubbles: true, cancelable: true }));
+      } catch (e) { /* noop */ }
+    }
+    return stuck() || ok;
   }
 
   /* ------------------------------ API client ------------------------------ */
@@ -1711,7 +1728,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v2.1.6";
+    verEl.textContent = "QuotePro browser tool v2.1.7";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
@@ -2728,6 +2745,12 @@
     }
     if (openerEl) {
       d.openerSel = buildSelector(openerEl);
+      // A text fingerprint of the cell, so Fill can re-find the same
+      // cell even after ServiceTitan re-renders the row and the
+      // positional selector drifts to a different line item.
+      const ot = (openerEl.innerText || openerEl.textContent || "")
+        .replace(/\s+/g, " ").trim();
+      if (ot) d.openerText = ot.slice(0, 80);
       if (!d.label) d.label = labelTextFor(openerEl);
     }
     return d;
@@ -2790,26 +2813,90 @@
     };
     if (r.el && !r.el.readOnly && !r.el.disabled) { doFillEl(r.el); return; }
     if (r.ambiguous) { done(false, "two fields look alike \u2014 re-pick this one"); return; }
-    let opener = r.el || null;
-    if (!opener && desc && desc.openerSel) {
-      try { opener = document.querySelector(desc.openerSel); } catch (e) { opener = null; }
-    }
+    // Locate the opener cell. The stored selector is positional and
+    // drifts when ServiceTitan re-renders rows, so verify it against
+    // the pick-time text fingerprint; on mismatch (or a dead
+    // selector), search the page for the cell by its text.
+    const fp = (desc && desc.openerText) || "";
+    const cellText = (el) => (el && (el.innerText || el.textContent) || "")
+      .replace(/\s+/g, " ").trim();
+    const fpMatch = (t) => !!fp && !!t &&
+      (t === fp || t.indexOf(fp) === 0 || fp.indexOf(t) === 0);
+    const findOpener = () => {
+      let op = r.el || null;
+      if (!op && desc && desc.openerSel) {
+        try { op = document.querySelector(desc.openerSel); } catch (e) { op = null; }
+      }
+      if (op && fp && !fpMatch(cellText(op))) op = null; // drifted row
+      if (!op && fp) {
+        let bestEl = null, bestDepth = -1;
+        const all = document.querySelectorAll("div, span, td, li, p");
+        for (let i = 0; i < all.length; i++) {
+          const c = all[i];
+          if (c.closest && c.closest("#qp-host")) continue;
+          if (!c.getClientRects().length) continue;
+          const t = cellText(c);
+          if (!fpMatch(t) || t.length > fp.length + 240) continue;
+          let depth = 0, n = c;
+          while (n.parentElement) { depth++; n = n.parentElement; }
+          if (depth > bestDepth) { bestDepth = depth; bestEl = c; }
+        }
+        op = bestEl;
+      }
+      return op;
+    };
+    let opener = findOpener();
     if (!opener) { done(false, "field not found \u2014 re-pick it"); return; }
-    const before = new Set(Array.prototype.slice.call(document.querySelectorAll(EDITABLE_SEL)));
-    try { opener.click(); } catch (e) { /* noop */ }
-    let tries = 0;
+    // Snapshot every editable WITH its visibility: ST keeps some
+    // editors in the DOM hidden and only shows them on click, so a
+    // "new element" check alone never sees them open.
+    const before = new Map();
+    Array.prototype.slice.call(document.querySelectorAll(EDITABLE_SEL))
+      .forEach((c) => before.set(c, c.getClientRects().length > 0));
+    const fireClick = (el, dbl) => {
+      const opts = { bubbles: true, cancelable: true, view: window };
+      const seq = (el2) => {
+        try {
+          if (typeof PointerEvent === "function") el2.dispatchEvent(new PointerEvent("pointerdown", opts));
+          el2.dispatchEvent(new MouseEvent("mousedown", opts));
+          if (typeof PointerEvent === "function") el2.dispatchEvent(new PointerEvent("pointerup", opts));
+          el2.dispatchEvent(new MouseEvent("mouseup", opts));
+          el2.dispatchEvent(new MouseEvent("click", opts));
+        } catch (e) { try { el2.click(); } catch (e2) { /* noop */ } }
+      };
+      seq(el);
+      if (dbl) {
+        seq(el);
+        try { el.dispatchEvent(new MouseEvent("dblclick", opts)); } catch (e) { /* noop */ }
+      }
+    };
+    fireClick(opener, false);
+    let tries = 0, retried = false;
     const poll = () => {
       tries++;
-      if (isEditableEl(opener) && !opener.readOnly && !opener.disabled) { doFillEl(opener); return; }
-      const fresh = Array.prototype.slice.call(document.querySelectorAll(EDITABLE_SEL))
-        .filter((c) => !before.has(c) && c.closest && !c.closest("#qp-host") &&
-          (c.offsetParent !== null || c.getClientRects().length));
-      const target = fresh.find((c) => !c.readOnly && !c.disabled) || fresh[0];
+      if (isEditableEl(opener) && !opener.readOnly && !opener.disabled &&
+          opener.getClientRects().length) { doFillEl(opener); return; }
+      const fresh = [];
+      Array.prototype.slice.call(document.querySelectorAll(EDITABLE_SEL)).forEach((c) => {
+        if (c.closest && c.closest("#qp-host")) return;
+        if (!c.getClientRects().length) return;
+        const was = before.get(c);
+        if (was === undefined || was === false) fresh.push(c);
+      });
+      const inPop = fresh.find((c) => c.closest && c.closest(
+        '[role="dialog"], [class*="popover" i], [class*="popup" i], [class*="modal" i], [class*="editor" i]'));
+      const target = inPop || fresh.find((c) => !c.readOnly && !c.disabled) || fresh[0];
       if (target) { doFillEl(target); return; }
-      if (tries < 12) setTimeout(poll, 120);
-      else done(false, "clicked the field but no editor opened \u2014 open it, then Fill");
+      if (!retried && tries >= 9) {
+        // Some ST cells open their editor on double-click.
+        retried = true;
+        const op2 = findOpener();
+        if (op2) { opener = op2; fireClick(op2, true); }
+      }
+      if (tries < 25) setTimeout(poll, 160);
+      else done(false, "clicked the mapped cell but no editor appeared \u2014 open the editor yourself, then click Fill");
     };
-    setTimeout(poll, 130);
+    setTimeout(poll, 160);
   }
 
   function isStEstimatePage() {
@@ -2975,7 +3062,23 @@
               const inner = cell.querySelectorAll ? cell.querySelectorAll(EDITABLE_SEL) : [];
               if (inner.length === 1) ed = inner[0];
             }
-            if (!ed) opener = t;
+            if (!ed) {
+              // Climb through wrappers that carry the exact same text
+              // (ST nests a description in spans/divs) so the mapping
+              // lands on the whole description block, not one inner
+              // span whose positional selector drifts between rows.
+              let op = t;
+              for (let i = 0; i < 6 && op.parentElement; i++) {
+                const par = op.parentElement;
+                if (par.closest && par.closest("#qp-host")) break;
+                const parText = (par.innerText || par.textContent || "").replace(/\s+/g, " ").trim();
+                const opText = (op.innerText || op.textContent || "").replace(/\s+/g, " ").trim();
+                if (!parText || parText !== opText) break;
+                if (par.querySelector && par.querySelector(EDITABLE_SEL)) break;
+                op = par;
+              }
+              opener = op;
+            }
           }
           const desc = describeField(ed, ed ? null : opener);
           if (desc.sel || desc.openerSel) {
