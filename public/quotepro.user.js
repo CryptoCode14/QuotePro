@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      2.1.7
+// @version      2.1.8
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -480,26 +480,16 @@
   // Pull the door profile off the iStore Pricing Details modal. The modal
   // header carries a pipe-separated "Product:" line, e.g.
   // "Product: 16' 0\" x 8' 0\" | 4300 | COMPLETE DOOR | SOLID (NO WINDOWS) | ...".
-  function parseDoorProfile() {
-    const profile = {
+  function emptyProfile() {
+    return {
       size: null, sizeRaw: "", model: "", series: "",
       color: "", windows: "", insulation: "", track: "", radius: "",
       section: "",
     };
+  }
+  function profileFromSegments(segs) {
+    const profile = emptyProfile();
     try {
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-      let prodText = "", node;
-      while ((node = walker.nextNode())) {
-        if (/Product\s*:/i.test(node.nodeValue || "")) {
-          const host = node.parentElement;
-          const t = host ? host.textContent : node.nodeValue;
-          if (/\|/.test(t)) { prodText = t; break; }
-        }
-      }
-      const m = prodText.match(/Product\s*:\s*([^|]+)\|(.+)/i);
-      if (!m) return profile;
-      const segs = [m[1]].concat(m[2].split("|"))
-        .map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
       profile.size = parseSizeStr(segs[0] || "");
       profile.sizeRaw = segs[0] || "";
       profile.model = segs[1] || "";
@@ -549,6 +539,37 @@
     profile.series = SERIES_MAP[profile.model] ||
       (/^(CAN|CED)/i.test(profile.model) ? "Canyon Ridge" : profile.model);
     return profile;
+  }
+  // The door profile from any text carrying a product line - the page's
+  // Pricing Details modal, or a scraped cart card's label (which leads
+  // with the size, no "Product:" prefix). Null when no product line.
+  function profileFromProductText(text) {
+    const m = String(text || "").match(
+      /(\d+\s*'\s*\d*\s*"?\s*x\s*\d+\s*(?:'\s*\d*\s*)?"?)\s*\|\s*(.+)/i);
+    if (!m) return null;
+    const segs = [m[1]].concat(m[2].split("|"))
+      .map((s) => s.replace(/\s+/g, " ").trim()).filter(Boolean);
+    // The label keeps going past the product line (multiplier, prices):
+    // cut the tail at the segment that turns into pricing text.
+    const cut = segs.findIndex((s, i) => i > 1 && /multiplier|list price|net price/i.test(s));
+    return profileFromSegments(cut > 0 ? segs.slice(0, cut) : segs);
+  }
+  function parseDoorProfile() {
+    try {
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (/Product\s*:/i.test(node.nodeValue || "")) {
+          const host = node.parentElement;
+          const t = host ? host.textContent : node.nodeValue;
+          if (/\|/.test(t)) {
+            const p = profileFromProductText(t);
+            if (p) return p;
+          }
+        }
+      }
+    } catch (e) { /* noop */ }
+    return emptyProfile();
   }
 
   // profile: {jobType, series, model, size, color, windows, insulation, track,
@@ -1728,7 +1749,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v2.1.7";
+    verEl.textContent = "QuotePro browser tool v2.1.8";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
@@ -1823,16 +1844,18 @@
         new RegExp("\\b" + mm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(t));
       return hit ? hit.toUpperCase() : "";
     };
+    const isModalLabel = (label) => /^\s*Pricing Details/i.test(label || "") ||
+      /Product\s*:\s*\d+\s*['\u2032]/i.test(label || "");
     const cardKeys = new Set();
     items.forEach((r) => {
-      if (!/Product\s*:/i.test(r.label || "") && !isPriceFor(r.label)) {
+      if (!isModalLabel(r.label) && !isPriceFor(r.label)) {
         const k = keyOf(r.label);
         if (k) cardKeys.add(k);
       }
     });
     const included = [];
     items.forEach((r) => {
-      if (/Product\s*:/i.test(r.label || "") && cardKeys.has(keyOf(r.label))) { r.bucket = "dup"; }
+      if (isModalLabel(r.label) && cardKeys.has(keyOf(r.label))) { r.bucket = "dup"; }
       else if (TOTAL_WORDS.test(r.label)) { r.bucket = "total"; }
       else included.push(r);
     });
@@ -1842,7 +1865,7 @@
     // also ate the product cards themselves on pages whose cards lead
     // with the product line (Weston's section cart, 2026-10-21: every
     // line excluded, buckets empty, $0.00 total).
-    const rollupShape = (label) => /Product\s*:/i.test(label || "") ||
+    const rollupShape = (label) => isModalLabel(label) ||
       /^\s*\d+\s*'\s*\d*\s*"?\s*x\s*\d+\s*(?:'\s*\d*\s*)?"?\s*\|/i.test(label || "");
     const subsetSum = (target, pool) => {
       const a = pool.slice().sort((x, y) => Math.abs(y) - Math.abs(x));
@@ -1907,7 +1930,59 @@
       misc += r.amount;
     });
     const r2 = (n) => Math.round(n * 100) / 100;
-    return { door: r2(door), windows: r2(windows), misc: r2(misc), doorGuess, rowCount: items.length, lines: items };
+    // Group the lines by product so a multi-item cart can be priced
+    // item by item (Weston, 2026-10-21: each cart item gets its own
+    // calculator run). A product-led line starts a group; lines that
+    // are not product-led (option cards) join the group in front of
+    // them. The group key is the product line's first four segments,
+    // which separates e.g. a Bottom from an Intermediate section.
+    const prodKeyOf = (label) => {
+      const t = String(label || "");
+      if (!/\d+\s*'\s*\d*\s*"?\s*x\s*\d+/i.test(t)) return "";
+      const segs = t.split("|").map((s) => s.replace(/\s+/g, " ").trim());
+      if (!segs.length) return "";
+      segs[0] = segs[0].replace(/^\s*Pricing Details\s*/i, "").replace(/^\s*Product\s*:\s*/i, "");
+      return segs.slice(0, 4).join("|").toUpperCase();
+    };
+    const groups = [];
+    const byKey = new Map();
+    let cur = null;
+    items.forEach((r) => {
+      const k = prodKeyOf(r.label);
+      if (k) {
+        if (!byKey.has(k)) {
+          const g = { key: k, label: r.label, door: 0, windows: 0, misc: 0, total: 0, qty: 0, lines: [] };
+          byKey.set(k, g);
+          groups.push(g);
+        }
+        cur = byKey.get(k);
+      }
+      if (!cur) {
+        if (!byKey.has("__main")) {
+          const g = { key: "__main", label: "", door: 0, windows: 0, misc: 0, total: 0, qty: 0, lines: [] };
+          byKey.set("__main", g);
+          groups.push(g);
+        }
+        cur = byKey.get("__main");
+      }
+      cur.lines.push(r);
+      if (r.bucket === "door") cur.door += r.amount;
+      else if (r.bucket === "windows") cur.windows += r.amount;
+      else if (r.bucket === "misc") cur.misc += r.amount;
+    });
+    groups.forEach((g) => {
+      g.door = r2(g.door); g.windows = r2(g.windows); g.misc = r2(g.misc);
+      g.total = r2(g.door + g.windows + g.misc);
+      // A modal copy in the group carries the unit price; when the
+      // group's door total is an exact multiple, that is the quantity.
+      const dup = g.lines.find((l) => l.bucket === "dup" && l.amount > 0);
+      if (dup && g.door > dup.amount) {
+        const q = g.door / dup.amount;
+        if (Math.abs(q - Math.round(q)) < 0.01 && Math.round(q) >= 2) g.qty = Math.round(q);
+      }
+    });
+    return { door: r2(door), windows: r2(windows), misc: r2(misc), doorGuess,
+      rowCount: items.length, lines: items, groups };
   }
 
   function describeScrape(s) {
@@ -2225,6 +2300,28 @@
       return true;
     };
 
+    // Switch the profile to a specific product's line (one item of a
+    // multi-item cart). A context switch: per-field edits reset and
+    // the texts regenerate fully for the newly selected item.
+    const refreshProfileFromText = (text) => {
+      const p = profileFromProductText(text);
+      if (!p || (!p.model && !p.sizeRaw)) return false;
+      Object.keys(profEdited).forEach((k) => { profEdited[k] = false; });
+      edited.title = edited.summary = edited.door = false;
+      prof = p;
+      profInputs.series.value = p.series || "";
+      profInputs.model.value = p.model || "";
+      profInputs.size.value = p.sizeRaw || "";
+      profInputs.color.value = p.color || "";
+      profInputs.windows.value = p.windows || "";
+      profInputs.insulation.value = p.insulation || "";
+      profInputs.track.value = p.track || "";
+      profInputs.radius.value = p.radius || "";
+      sectionSel.value = p.section || "";
+      regen(false);
+      return true;
+    };
+
     const getTexts = () => {
       const p = readProfile();
       return {
@@ -2265,7 +2362,7 @@
     saveRow.appendChild(savedNote);
     sec.appendChild(saveRow);
 
-    return { getTexts, refreshProfile };
+    return { getTexts, refreshProfile, refreshProfileFromText };
   }
 
   function initIStore() {
@@ -2365,6 +2462,9 @@
     };
     renderLines(scraped);
 
+    const pickerBox = document.createElement("div");
+    body.appendChild(pickerBox);
+
     const doorIn = labeledInput(body, "Door", "door", scraped.door || "", scraped.doorGuess);
     const winIn = labeledInput(body, "Windows", "windows", scraped.windows || "", false);
     const miscIn = labeledInput(body, "Misc", "misc", scraped.misc || "", false);
@@ -2403,22 +2503,111 @@
     // door profile. Saved alongside the calculation for the ST tab.
     const estTexts = initEstimateTexts(body);
 
+    // Multi-item carts: Weston runs the calculator once per item, so
+    // each product group gets a picker row. Selecting one loads its
+    // costs, its door profile and its texts; "Combined" restores the
+    // whole-page scrape. The saved result carries the item's name so
+    // the ServiceTitan tab shows which item the numbers belong to.
+    let curScrape = scraped;
+    let activeKey = null;
+    let activeItemLabel = "";
+    const groupName = (g) => {
+      const p = profileFromProductText(g.label);
+      if (!p) return shortLabel(g.label);
+      if (p.section) {
+        return (p.model + " " +
+          (p.section !== "Replacement" ? p.section + " " : "") + "Section").trim();
+      }
+      return (p.model + " " + (p.sizeRaw || "")).trim() || shortLabel(g.label);
+    };
+    const renderPicker = () => {
+      pickerBox.innerHTML = "";
+      const gs = (curScrape.groups || []).filter((g) => g.lines.length);
+      if (gs.length <= 1) { pickerBox.style.display = "none"; return; }
+      pickerBox.style.display = "";
+      const cap = document.createElement("div");
+      cap.style.cssText = "font-size:10px;font-weight:700;color:#6b7280;letter-spacing:.12em;margin:10px 0 6px;";
+      cap.textContent = "ITEMS \u2014 CALCULATE EACH ONE";
+      pickerBox.appendChild(cap);
+      const mkRow = (name, total, key) => {
+        const active = key === activeKey;
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;" +
+          "padding:7px 10px;margin-bottom:6px;border-radius:8px;cursor:pointer;" +
+          "background:" + (active ? "#232a38" : "#1a1d21") + ";" +
+          "box-shadow:inset 0 0 0 1px " + (active ? "#2f6fed" : "#2e323a") +
+          (active ? ", inset 2px 0 0 #2f6fed" : "") + ";";
+        const nm = document.createElement("span");
+        nm.style.cssText = "font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:" +
+          (active ? "#e8eaed" : "#9aa0ab") + ";";
+        nm.textContent = name;
+        const amt = document.createElement("span");
+        amt.style.cssText = "font-size:12px;font-variant-numeric:tabular-nums;color:#e8eaed;flex-shrink:0;";
+        amt.textContent = fmt$(total);
+        row.appendChild(nm);
+        row.appendChild(amt);
+        row.addEventListener("click", () => activate(key));
+        pickerBox.appendChild(row);
+      };
+      mkRow("Combined (all items)",
+        (curScrape.door || 0) + (curScrape.windows || 0) + (curScrape.misc || 0), null);
+      gs.forEach((g) => mkRow(groupName(g) + (g.qty ? " \u00d7" + g.qty : ""), g.total, g.key));
+    };
+    const activate = (key) => {
+      activeKey = key;
+      const gs = curScrape.groups || [];
+      const g = key ? gs.find((x) => x.key === key) : null;
+      if (g) {
+        activeItemLabel = groupName(g);
+        doorIn.value = g.door || "";
+        winIn.value = g.windows || "";
+        miscIn.value = g.misc || "";
+        doorIn.classList.remove("qp-guess");
+        estTexts.refreshProfileFromText(g.label);
+      } else {
+        activeItemLabel = "";
+        doorIn.value = curScrape.door || "";
+        winIn.value = curScrape.windows || "";
+        miscIn.value = curScrape.misc || "";
+        doorIn.classList.toggle("qp-guess", !!curScrape.doorGuess);
+        estTexts.refreshProfile();
+      }
+      updateTotal();
+      renderPicker();
+    };
+    renderPicker();
+    if ((curScrape.groups || []).length > 1) {
+      const first = curScrape.groups.find((g) => g.key !== "__main") || curScrape.groups[0];
+      activate(first.key);
+    }
+
     const rescrape = document.createElement("button");
     rescrape.className = "qp-btn qp-secondary";
     rescrape.textContent = "Re-scan page";
     rescrape.addEventListener("click", () => {
       const s = scrapeIStore();
-      // Only overwrite fields the scrape actually found — never wipe typed values.
-      if (s.door || s.doorGuess) {
-        doorIn.value = s.door || "";
-        doorIn.classList.toggle("qp-guess", s.doorGuess);
-      }
-      if (s.windows) winIn.value = s.windows;
-      if (s.misc) miscIn.value = s.misc;
+      curScrape = s;
       note.textContent = describeScrape(s);
       renderLines(s);
-      updateTotal();
-      estTexts.refreshProfile();
+      if ((s.groups || []).length > 1) {
+        // Stay on the same item when it is still in the cart.
+        const keep = activeKey && s.groups.some((g) => g.key === activeKey);
+        activate(keep ? activeKey
+          : (s.groups.find((g) => g.key !== "__main") || s.groups[0]).key);
+      } else {
+        activeKey = null;
+        activeItemLabel = "";
+        // Only overwrite fields the scrape actually found — never wipe typed values.
+        if (s.door || s.doorGuess) {
+          doorIn.value = s.door || "";
+          doorIn.classList.toggle("qp-guess", s.doorGuess);
+        }
+        if (s.windows) winIn.value = s.windows;
+        if (s.misc) miscIn.value = s.misc;
+        renderPicker();
+        updateTotal();
+        estTexts.refreshProfile();
+      }
     });
     body.appendChild(rescrape);
 
@@ -2488,6 +2677,7 @@
             gap: data.gap,
             breakdown: data.breakdown || null,
             at: Date.now(),
+            itemLabel: activeItemLabel || "",
             texts: estTexts.getTexts(),
           });
           syncDockTotal();
@@ -2927,7 +3117,8 @@
           "Last calculation (" + when + "): dealer " + fmt$(last.dealer_cost_total) +
           " \u00b7 double " + fmt$(last.double_cost) +
           " \u00b7 final " + fmt$(last.final_price) +
-          (typeof last.gap === "number" ? " \u00b7 gap " + fmt$(last.gap) : "") + ".";
+          (typeof last.gap === "number" ? " \u00b7 gap " + fmt$(last.gap) : "") +
+          (last.itemLabel ? " For: " + last.itemLabel + "." : ".");
       } else {
         note.textContent = "No calculation saved yet \u2014 run Calculate on the iStore tab first.";
       }
