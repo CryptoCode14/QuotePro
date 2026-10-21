@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      2.1.2
+// @version      2.1.3
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -695,6 +695,7 @@
     .qp-copy:active { transform: scale(.96); }
     .qp-ok { color: #7ee2a8; font-size: 12px; margin-top: 6px; display: none; }
     .qp-dock { position: fixed; z-index: 2147483647; isolation: isolate;
+      box-sizing: border-box;
       padding: 10px 16px 10px 10px; border-radius: 22px; overflow: visible;
       background: transparent; box-shadow: none;
       cursor: grab; user-select: none; touch-action: none;
@@ -706,8 +707,7 @@
     .qp-dock.qp-dock-v .qp-dock-face { flex-direction: column; gap: 11px;
       justify-content: center; }
     .qp-dock::before, .qp-dock::after { display: none; }
-    .qp-dock.qp-dock-v { padding: 10px 10px 16px;
-      box-sizing: border-box; }
+    .qp-dock.qp-dock-v { padding: 10px 10px 16px; }
     .qp-dock.qp-dock-v .qp-dock-text { align-items: center; }
     .qp-dock.qp-dock-v .qp-dock-label { font-size: 8.5px; }
     .qp-dock.qp-dock-v .qp-dock-total { font-size: 12.5px; max-width: 78px; text-align: center; }
@@ -1655,7 +1655,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v2.1.2";
+    verEl.textContent = "QuotePro browser tool v2.1.3";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
