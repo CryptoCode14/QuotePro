@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.9.1
+// @version      2.0.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -908,15 +908,14 @@
     /* ---- dock skin: ONE silhouette for body + liquid edge ----
        Built in a canonical frame (u along the wall, v away from it; the
        body occupies u in [0, L], v in [0, S]; the wall sits at v = -gap)
-       and mapped onto the engaged edge. The two shoulders leave the
-       body's side edges tangentially and land on the wall tangentially,
-       bowed toward the corner — a concave meniscus fillet, the shape
-       surface tension actually makes. Under tear tension the contact
-       patch shrinks (the neck pinches); at gap 0 the fillets become the
-       weld that merges dock and wall. One path, one substance: the edge
-       the user sees is the dock's own outline. */
+       and mapped onto the engaged edge. The meniscus is the one in
+       Weston's specification: flares run along the wall past both
+       ends of the body and sweep over its end faces to the far
+       corners, so the body's wall-side edge never appears in the
+       outline at all. One path, one substance: the edge the user
+       sees is the dock's own outline. */
     const SKIN_PAD = 170;
-    const skinPathD = (w, h, edge, gap, bleed, tension) => {
+    const skinPathD = (w, h, edge, gap, bleed, tension, alongPos, alongTotal) => {
       const P = SKIN_PAD, R = 22;
       const n = (v) => Math.round(v * 10) / 10;
       const rrect = () =>
@@ -929,85 +928,40 @@
         " L " + P + " " + n(P + R) +
         " Q " + P + " " + P + " " + n(P + R) + " " + P + " Z";
       const b = Math.min(1, Math.max(0, bleed));
-      if (!edge || gap > 95 || b < 0.05) return rrect();
+      if (!edge || b < 0.02) return rrect();
       const side = edge === "left" || edge === "right";
       const L = side ? h : w, S = side ? w : h;
       const t = Math.min(1, Math.max(0, tension));
-      const uc = L / 2;
-      // Bridge geometry (the QQ sticky-badge construction): a wall
-      // anchor pair and a body anchor pair joined by two quadratics
-      // that share ONE control point at the neck's centre — the shared
-      // control bows both curves into the concave capillary waist a
-      // real liquid neck makes. The contact grows from a droplet tip as
-      // bleed rises; under tension the WALL patch shrinks faster than
-      // the body patch, so the neck pinches at the wall first, the way
-      // a droplet lets go. Wall-side corners flatten as the weld forms.
-      const dockBlend = b * Math.max(0, Math.min(1, 1 - gap / 16));
-      const Rw = Math.max(3, R * (1 - 0.85 * dockBlend));
-      // Tension pinch is nonlinear: a capillary neck at 60% of the
-      // tear pull is a THREAD, not a slightly slimmer patch — linear
-      // shrink factors (0.72/0.45) left a giant leaf stuck to the wall.
-      // The shape reads the STRAIN (tension remapped t^0.7): the wall
-      // patch collapses fastest, the body patch is capped at 36% of
-      // the side — uncapped, a tall bar's neck attached along its
-      // whole side and the pull read as two slabs side by side.
-      const tS = Math.pow(t, 0.7);
-      const wallHalf = (L / 2 + 12) * b * (0.45 + 0.55 * b) * Math.pow(1 - tS, 2.2);
-      const bodyHalf = Math.min((L / 2 + 6) * b * (0.60 + 0.40 * b) * Math.pow(1 - tS, 1.1), L * 0.36);
-      // Neck sides are cubics, not quadratics: the shared-control
-      // quadratic lands on the wall at ~40 degrees — a thorn. These
-      // handles make the curve LEAVE along the body's edge (a smooth
-      // shoulder) and ARRIVE along the wall (a wetting flare, contact
-      // angle ~0), with the concave waist falling out of the S-curves.
-      // Handles scale with the neck's LENGTH (the gap), capped by the
-      // patch they flare from. Scaling them with the anchor halves
-      // instead threw 100px+ handles on a 13px neck and the S-curves
-      // wrapped the whole bar into a lens; fixed minimums dwarfed a
-      // newborn tongue the same way from the other side.
-      // Handle placement blends with the neck's aspect. A LONG neck
-      // (approach tongue) earns the meniscus shoulder: the exit
-      // handle sits OUTSIDE the anchor span, the curve leaves along
-      // the body's edge. A SHORT neck (tearing pull) must narrow
-      // monotonically: both handles sit INSIDE the span, pulled a
-      // touch toward the centre axis for the concave waist — an
-      // outside handle there bows the side into a convex ear, and a
-      // handle beyond the far anchor pokes a point at the junction.
-      const shoulder = Math.max(0, Math.min(1, (gap - 26) / 34));
-      const sh1 = Math.min(gap * 0.5, bodyHalf * 0.30);
-      const sh2 = Math.min(gap * 0.35, wallHalf * 0.30 + 1);
-      // ONE continuous trace: the neck is woven INTO the body's wall
-      // edge, never a separate closed subpath. v1.9.0 drew the neck as
-      // its own blob subpath unioned by fill — but SVG strokes paint
-      // EVERY subpath, so the path's hairline rim outlined the blob
-      // separately (and drew a seam line where it joined the body):
-      // on a pull the neck read as a bordered flap, a leftover piece,
-      // instead of the dock's own substance tearing. Body anchors
-      // clamp to the wall edge's straight run; when a patch outgrows
-      // it, the neck leaves from the corner itself — a meniscus
-      // wrapping the corner, still a single outline.
-      const a1 = Math.max(Rw + 0.5, Math.min(uc - bodyHalf, uc));
-      const a2 = Math.min(L - Rw - 0.5, Math.max(uc + bodyHalf, uc));
-      const w1 = uc - wallHalf, w2 = uc + wallHalf;
-      const c1Top = a1 + (w1 - a1) * 0.30 * (1 - shoulder) - sh1 * shoulder;
-      const c1Bot = a2 + (w2 - a2) * 0.30 * (1 - shoulder) + sh1 * shoulder;
-      const c2Top = w1 - sh2 * (0.35 + 0.65 * shoulder);
-      const c2Bot = w2 + sh2 * (0.35 + 0.65 * shoulder);
+      // Meniscus geometry, verbatim from Weston's specification (§4.2):
+      // the flares run ALONG the wall, extending flareLen PAST both
+      // ends of the body, hug the wall for a tangent run of
+      // 0.32 x flare, then sweep in a concave cubic over the body's
+      // END faces and land r short of the far corners. The body's
+      // wall-side edge is never part of the outline — the liquid
+      // envelops the corners — so a pull can never expose a slab with
+      // an add-on neck: the whole silhouette is one tearing surface.
+      // flareLen = 105 (tab) x bleed x (1 - 0.35 x tension); the
+      // attach sweep's second control sits neckPull off the wall and
+      // is dragged pinch = gap x tension x 0.40 inboard under strain.
+      let flare = 105 * b * (1 - 0.35 * t);
+      // Flare tips never run past a screen corner: each side's flare
+      // is shortened to the room actually available along the wall.
+      const aPos = (typeof alongPos === "number") ? alongPos : 0;
+      const aTot = (typeof alongTotal === "number") ? alongTotal : 1e9;
+      const flareTop = Math.min(flare, Math.max(0, aPos - 2));
+      const flareBot = Math.min(flare, Math.max(0, aTot - (aPos + L) - 2));
+      const tanTop = 0.32 * flareTop, tanBot = 0.32 * flareBot;
+      const neckPull = Math.max(0,
+        gap * (0.15 + (1 - t) * 0.22) + (S - R) * 0.12 * (1 - t * 0.5));
+      const neckV = neckPull - gap;
+      const pinch = gap * t * 0.40;
       const seg = [];
-      seg.push(["M", Rw, 0]);
-      if (gap > 0.5) {
-        seg.push(["L", a1, 0]);
-        seg.push(["C", c1Top, -gap * 0.42, c2Top, -gap, w1, -gap]);
-        seg.push(["L", w2, -gap]);
-        seg.push(["C", c2Bot, -gap, c1Bot, -gap * 0.42, a2, 0]);
-      }
-      seg.push(["L", L - Rw, 0]);
-      seg.push(["Q", L, 0, L, Rw]);
-      seg.push(["L", L, S - R]);
-      seg.push(["Q", L, S, L - R, S]);
-      seg.push(["L", R, S]);
-      seg.push(["Q", 0, S, 0, S - R]);
-      seg.push(["L", 0, Rw]);
-      seg.push(["Q", 0, 0, Rw, 0]);
+      seg.push(["M", -flareTop, -gap]);
+      seg.push(["C", -flareTop + tanTop, -gap, pinch, neckV, 0, S - R]);
+      seg.push(["Q", 0, S, R, S]);
+      seg.push(["L", L - R, S]);
+      seg.push(["Q", L, S, L, S - R]);
+      seg.push(["C", L - pinch, neckV, L + flareBot - tanBot, -gap, L + flareBot, -gap]);
       seg.push(["Z"]);
       const toXY = (u, v) => {
         if (edge === "left") return [P + v, P + u];
@@ -1044,6 +998,9 @@
       else if (edge === "right") gap = Math.max(0, window.innerWidth - (x + w));
       else if (edge === "top") gap = Math.max(0, y);
       else if (edge === "bottom") gap = Math.max(0, window.innerHeight - (y + h));
+      const alongPos = (edge === "left" || edge === "right") ? y : x;
+      const alongTotal = (edge === "left" || edge === "right")
+        ? window.innerHeight : window.innerWidth;
       // Quantized repaint gate: rewriting the path forces a full
       // drop-shadow re-raster; when the geometry has not moved by at
       // least half a pixel (or 0.01 of bleed/tension), skip every DOM
@@ -1066,7 +1023,8 @@
         }
       }
       const sig = w + "|" + h + "|" + (edge || "") + "|" + Math.round(gap * 2) +
-        "|" + Math.round((edge ? bleedCur : 0) * 100) + "|" + Math.round((edge ? tensionCur : 0) * 100);
+        "|" + Math.round((edge ? bleedCur : 0) * 100) + "|" + Math.round((edge ? tensionCur : 0) * 100) +
+        "|" + Math.round(alongPos / 4);
       if (sig === skinSig) return;
       skinSig = sig;
       skin.setAttribute("width", Math.round(w + SKIN_PAD * 2));
@@ -1078,7 +1036,8 @@
       skinGrad.setAttribute("y1", String(SKIN_PAD));
       skinGrad.setAttribute("y2", String(SKIN_PAD + h));
       skinPath.setAttribute("d",
-        skinPathD(w, h, gap <= 95 ? edge : null, gap, edge ? bleedCur : 0, edge ? tensionCur : 0));
+        skinPathD(w, h, gap <= 95 ? edge : null, gap, edge ? bleedCur : 0,
+          edge ? tensionCur : 0, alongPos, alongTotal));
     };
     const place = (el) => {
       if (busyEls.has(el)) return;
@@ -1107,21 +1066,22 @@
     const reducedMotion = () =>
       window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    /* ---- liquid motion engine (v1.4.0) ----
-       The behavior of Weston's liquid edge-dock prototype, upgraded per
-       the liquid-techniques research: time-normalised springs on separate
-       channels (pointer-follow 240/z0.84, snap-home 330/z0.95, bleed and
-       tension 150/z0.68), iOS rubber-band tear resistance (c=0.55,
-       d=120) with the neck derived as pull minus panel offset,
-       velocity-aware rupture past 85px of pull, snap commit inside 24px
-       on 70ms dwell or slow movement (instant inside 8px), a 250ms
-       re-snap lockout after rupture, and a loop that sleeps at rest. */
-    const BLEED_NEAR = 76, BLEED_FULL = 12, SNAP_ZONE = 30, SNAP_NOW = 8;
-    const TEAR_PULL = 100, LOCKOUT_MS = 250;
-    const rubber = (x) => (x * 120 * 0.55) / (120 + 0.55 * x);
+    /* ---- liquid motion engine ----
+       Time-normalised springs on separate channels (pointer-follow
+       240/z0.84, snap-home 330/z0.95, bleed and tension springs) drive
+       the calibrated model in Weston's liquid-dock specification:
+       bleed inside 60px on a ^1.2 wetting curve with a 14px magnetic
+       pull-in, snap commit inside 22px (mid-drag or on release with
+       bleed > 0.35), capillary necking under a power-law stretch
+       (tension^1.45 x 60), rupture at 102px of pull with a recoil
+       impulse, and a loop that sleeps at rest. */
+    // Calibrated constants from Weston's liquid-dock specification
+    // (2026-10-21): bleed engages inside 50px x viscosity 1.2 = 60px
+    // of an edge, snap commits inside 22px, and the capillary bridge
+    // ruptures at 85px x 1.2 = 102px of perpendicular pull.
+    const BLEED_DIST = 60, SNAP_DIST = 22, TEAR_PULL = 102;
     let bleedTgt = bleedCur, bleedVel = 0;
     let tensionTgt = 0, tensionVel = 0;
-    let lockoutUntil = 0;
 
     const nearestEdge = (x, y, w, h) => {
       const c = [
@@ -1213,14 +1173,13 @@
         const cTn = 2 * (RM ? 1 : 0.8) * Math.sqrt(170);
         tensionVel += (-170 * (tensionCur - tensionTgt) - cTn * tensionVel) * h;
         tensionCur += tensionVel * h;
-        // Velocity viscosity (free flight only): the silhouette
-        // stretches along the motion, volume-preserving (width grows
-        // by 1+s, depth by 1/sqrt(1+s)), easing in and out on its own
-        // slow channel — the drag feels like pulling something soft.
+        // Velocity viscosity is OFF: Weston's specification defines
+        // the silhouette purely from position, bleed and tension —
+        // no velocity deformation. The channel is kept (target 0) so
+        // the transform gate in renderSkin stays idle.
         if (m.el === dock) {
           const sp = Math.hypot(m.vx, m.vy);
-          const sTgt = (!snappedEdge && bleedCur < 0.05 && !RM)
-            ? Math.min(0.16, Math.max(0, (sp - 350) / 5200)) : 0;
+          const sTgt = 0;
           const cS = 2 * 0.9 * Math.sqrt(90);
           stretchVel += (-90 * (stretchCur - sTgt) - cS * stretchVel) * h;
           stretchCur += stretchVel * h;
@@ -1269,11 +1228,10 @@
       engEdge = edge;
       bleedTgt = 1;
       tensionTgt = 0;
-      // Suction: a kick to the bleed channel as capture lands — the
-      // contact patch blooms for a beat (overshoot past 1, clamped at
-      // 1.1) and settles, the surface-tension "gulp" of a droplet
-      // merging with the wall.
-      bleedVel += 2.6;
+      // Spec state model: a snap collapses the expanded window into
+      // the edge tab. The panel folds when the gesture ends (finish()
+      // performs it); the dock is already the tab.
+      if (el === panel) m.snapCollapse = true;
       const fp = flushPos(edge, m.tx, m.ty, el.offsetWidth, el.offsetHeight);
       m.tx = fp.x;
       m.ty = fp.y;
@@ -1288,22 +1246,23 @@
         engEdge = snappedEdge;
         bleedTgt = 1;
         const fp = flushPos(snappedEdge, desX, desY, w, h);
-        let pull = 0, vPerp = 0;
+        let pull = 0;
         // A fresh grab of an already-docked element has no baseline yet
         // (the motion object is new): baseline = where this grab's drag
         // began, so pull is always "how far THIS gesture has pulled".
         if (typeof m.baseDesX !== "number") { m.baseDesX = desX; m.baseDesY = desY; }
         const bx = m.baseDesX;
         const by = m.baseDesY;
-        if (snappedEdge === "left") { pull = Math.max(0, desX - bx); vPerp = Math.max(0, pvx); }
-        if (snappedEdge === "right") { pull = Math.max(0, bx - desX); vPerp = Math.max(0, -pvx); }
-        if (snappedEdge === "top") { pull = Math.max(0, desY - by); vPerp = Math.max(0, pvy); }
-        if (snappedEdge === "bottom") { pull = Math.max(0, by - desY); vPerp = Math.max(0, -pvy); }
-        if (pull + vPerp * 0.055 > TEAR_PULL) {
-          // Capillary rupture: pop free, with a short re-snap lockout.
+        if (snappedEdge === "left") pull = Math.max(0, desX - bx);
+        if (snappedEdge === "right") pull = Math.max(0, bx - desX);
+        if (snappedEdge === "top") pull = Math.max(0, desY - by);
+        if (snappedEdge === "bottom") pull = Math.max(0, by - desY);
+        if (pull >= TEAR_PULL) {
+          // Capillary rupture (spec §5.2): the bridge lets go and the
+          // recoil kicks the element away from the wall.
+          const tornEdge = snappedEdge;
           snappedEdge = null;
           anchor.edge = null;
-          lockoutUntil = now + LOCKOUT_MS;
           tensionTgt = 0;
           bleedTgt = 0;
           engEdge = null;
@@ -1312,11 +1271,19 @@
           if (el === dock) setDockOrient(null);
           m.tx = desX;
           m.ty = desY;
+          const KICK = 900; // the spec's +-18/frame impulse, in px/s
+          if (tornEdge === "left") m.vx += KICK;
+          if (tornEdge === "right") m.vx -= KICK;
+          if (tornEdge === "top") m.vy += KICK;
+          if (tornEdge === "bottom") m.vy -= KICK;
           persist();
           return;
         }
-        const off = reducedMotion() ? 0 : rubber(pull);
-        tensionTgt = reducedMotion() ? 0 : Math.min(1, Math.max(0, (pull - off) / TEAR_PULL));
+        // Capillary necking: power-law stretch resistance; the shape
+        // channel reads the raw strain (pull / TEAR_PULL).
+        const strain = Math.min(1, pull / TEAR_PULL);
+        const off = reducedMotion() ? 0 : Math.pow(strain, 1.45) * 60;
+        tensionTgt = reducedMotion() ? 0 : strain;
         if (snappedEdge === "left") { m.tx = fp.x + off; m.ty = clampAlong(desY, h, window.innerHeight); }
         if (snappedEdge === "right") { m.tx = fp.x - off; m.ty = clampAlong(desY, h, window.innerHeight); }
         if (snappedEdge === "top") { m.ty = fp.y + off; m.tx = clampAlong(desX, w, window.innerWidth); }
@@ -1340,24 +1307,20 @@
         : nearestEdge(desX, desY, w, h);
       m.nearEdge = near.edge;
       engEdge = near.edge;
-      bleedTgt = 1 - smooth(BLEED_FULL, BLEED_NEAR, near.gap);
+      // Wetting curve (spec §5.2): bleed = (1 - (gap - 22) / (60 - 22))
+      // ^ 1.2 across the bleed zone, 1 inside the snap zone, 0 beyond.
+      bleedTgt = near.gap >= BLEED_DIST ? 0
+        : near.gap <= SNAP_DIST ? 1
+        : Math.pow(1 - (near.gap - SNAP_DIST) / (BLEED_DIST - SNAP_DIST), 1.2);
       tensionTgt = 0;
       let tx = desX, ty = desY;
-      const pullIn = bleedTgt * 22;
+      const pullIn = bleedTgt * 14;
       if (near.edge === "left") tx = desX - pullIn;
       if (near.edge === "right") tx = desX + pullIn;
       if (near.edge === "top") ty = desY - pullIn;
       if (near.edge === "bottom") ty = desY + pullIn;
-      if (now >= lockoutUntil && bleedTgt > 0) {
-        if (near.gap <= SNAP_NOW) { doSnap(el, m, near.edge, desX, desY); return; }
-        if (near.gap <= SNAP_ZONE) {
-          if (m.zoneEdge !== near.edge) { m.zoneEdge = near.edge; m.zoneSince = now; }
-          const speed = Math.abs(near.edge === "left" || near.edge === "right" ? pvx : pvy);
-          if (now - m.zoneSince >= 70 || speed < 500) { doSnap(el, m, near.edge, desX, desY); return; }
-        } else {
-          m.zoneEdge = null;
-        }
-      }
+      // Snap zone: entering it mid-drag commits the snap at once.
+      if (near.gap < SNAP_DIST) { doSnap(el, m, near.edge, desX, desY); return; }
       m.tx = tx;
       m.ty = ty;
     };
@@ -1421,6 +1384,17 @@
         const pvx = d.pvx || 0, pvy = d.pvy || 0;
         tensionTgt = 0;
         if (cancelled) { bleedTgt = snappedEdge ? 1 : 0; return; }
+        // Spec state model: a snapped PANEL folds into the edge tab.
+        // The dock takes the edge and the panel's drop position via
+        // the shared anchor, then wets in (setDocked's snap branch).
+        const collapseToTab = () => {
+          anchor = {
+            fx: m.tx / window.innerWidth, fy: m.ty / window.innerHeight,
+            edge: snappedEdge,
+          };
+          persist();
+          setDocked(true);
+        };
         if (snappedEdge) {
           // Re-seat flush, with the along-edge coordinate taken from the
           // drop point (not the spring's lagging position).
@@ -1430,13 +1404,16 @@
           m.tx = fp.x;
           m.ty = fp.y;
           bleedTgt = 1;
+          if (m.snapCollapse) { m.snapCollapse = false; collapseToTab(); }
           return;
         }
-        // Snap-in on release only when the goo is engaged AND no fresh
-        // rupture is inside its re-snap lockout — otherwise a fast yank
-        // off the wall (rupture, release within ~250ms, bleed not yet
-        // decayed) snapped the element straight back to the wall.
-        if (performance.now() >= lockoutUntil && bleedCur > 0.35 && m.nearEdge) { doSnap(el, m, m.nearEdge); return; }
+        // Release-to-snap (spec §5.3): letting go while the meniscus
+        // is engaged past 0.35 snaps the element flush to that edge.
+        if (bleedCur > 0.35 && m.nearEdge) {
+          doSnap(el, m, m.nearEdge);
+          if (m.snapCollapse) { m.snapCollapse = false; collapseToTab(); }
+          return;
+        }
         bleedTgt = 0;
         engEdge = null;
         // Free rest: spring to the DROP point (where the pointer let go),
@@ -1569,7 +1546,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v1.9.1";
+    verEl.textContent = "QuotePro browser tool v2.0.0";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
