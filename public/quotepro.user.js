@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      2.1.5
+// @version      2.1.6
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -146,13 +146,6 @@
     // "PRICE FOR ..." cards are add-ons/options, never the door itself.
     if (isPriceFor(label)) return false;
     return DOOR_KEYWORDS.some((k) => compact(label).includes(k));
-  }
-  // An item whose label IS a product line ("16' 0\" X 8' 0\" | 9203 | ...")
-  // is a per-product subtotal row, not a line item.
-  function isProductLineLabel(label) {
-    const t = label || "";
-    if (/Product\s*:/i.test(t)) return true;
-    return /^\s*\d+\s*'\s*\d*\s*"?\s*x\s*\d+\s*'\s*\d*\s*"?\s*\|/i.test(t);
   }
   // Every model number from every "Product:" line on the page (multi-door
   // orders list one product group per door).
@@ -393,9 +386,17 @@
 
   // "16' 0\" x 8' 0\"" -> {wFt:16,wIn:0,hFt:8,hIn:0}; null when unparseable.
   function parseSizeStr(s) {
-    const m = String(s || "").match(/(\d+)\s*'\s*(\d*)\s*"?\s*x\s*(\d+)\s*'\s*(\d*)\s*"?/i);
-    if (!m) return null;
-    return { wFt: +m[1], wIn: +(m[2] || 0), hFt: +m[3], hIn: +(m[4] || 0) };
+    const t = String(s || "");
+    let m = t.match(/(\d+)\s*'\s*(\d*)\s*"?\s*x\s*(\d+)\s*'\s*(\d*)\s*"?/i);
+    if (m) return { wFt: +m[1], wIn: +(m[2] || 0), hFt: +m[3], hIn: +(m[4] || 0) };
+    // Replacement sections print the section height in inches only
+    // ("14' 2" X 24"") - no foot mark on the second dimension.
+    m = t.match(/(\d+)\s*'\s*(\d*)\s*"?\s*x\s*(\d+)\s*"/i);
+    if (m) return { wFt: +m[1], wIn: +(m[2] || 0), hFt: 0, hIn: +m[3] };
+    // Typed plain form ("16x8").
+    m = t.match(/(\d+)\s*x\s*(\d+)/i);
+    if (m) return { wFt: +m[1], wIn: 0, hFt: +m[2], hIn: 0 };
+    return null;
   }
   function fmtXSize(sz) {
     if (!sz) return "";
@@ -406,7 +407,7 @@
   }
   function fmtFeetSize(sz) {
     if (!sz) return "";
-    const bit = (f, i) => f + "'" + (i ? i + '"' : "");
+    const bit = (f, i) => (f ? f + "'" + (i ? i + '"' : "") : i + '"');
     return bit(sz.wFt, sz.wIn) + "x" + bit(sz.hFt, sz.hIn);
   }
 
@@ -466,6 +467,7 @@
     const profile = {
       size: null, sizeRaw: "", model: "", series: "",
       color: "", windows: "", insulation: "", track: "", radius: "",
+      section: "",
     };
     try {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -502,6 +504,18 @@
           profile.windows += ", Section " + secm[1];
         }
       }
+      // A "REPLACEMENT SECTION" product is a single door section, not
+      // a full door (Weston, 2026-10-21): the generated title and
+      // descriptions must say so. The position rides in its own
+      // segment ("INTERMEDIATE SECTION", "BOTTOM SECTION", ...).
+      if (segs.some((s) => /replacement\s+section/i.test(s))) {
+        profile.section = "Replacement";
+        const posSeg = segs.find((s) => /^(bottom|intermediate|top)\s+section/i.test(s));
+        if (posSeg) {
+          const w = posSeg.match(/^(bottom|intermediate|top)/i)[1].toLowerCase();
+          profile.section = w.charAt(0).toUpperCase() + w.slice(1);
+        }
+      }
       const iseg = segs.find((s) => /insulat|r-value|polystyrene|polyurethane|intellicore/i.test(s)) || "";
       if (iseg) profile.insulation = toTitleCase(iseg);
       profile.track = mapTrackFromText(rest);
@@ -531,9 +545,15 @@
       out.summary = noEmDash(p.serviceSummary || "");
       return out;
     }
-    // Commercial titles carry the model: "Clopay Commercial 3722 10'2\"x8' Door".
+    // A replacement section is titled as one (Weston's data:
+    // "Clopay 3724 14'2\"x24\" Bottom Replacement Section").
+    const isSec = !!p.section;
+    const secPos = (p.section && p.section !== "Replacement") ? p.section : "";
     let title;
-    if (p.series === "Commercial" && p.model) {
+    if (isSec) {
+      title = ("Clopay " + [p.model, sizeX, secPos, "Replacement Section"]
+        .filter(Boolean).join(" ")).replace(/\s+/g, " ").trim();
+    } else if (p.series === "Commercial" && p.model) {
       title = ("Clopay Commercial " + p.model + " " + sizeX + " Door")
         .replace(/\s+/g, " ").trim();
     } else {
@@ -543,15 +563,24 @@
     if (p.titleOption) title += " (" + p.titleOption.trim() + ")";
     out.title = noEmDash(title);
 
-    const head = [p.model, sizeX].filter(Boolean).join(" ");
-    const tail = [p.color, p.windows, p.track, p.radius].filter(Boolean).join(", ");
+    const head = isSec
+      ? [p.model, sizeX, secPos, "Replacement Section"].filter(Boolean).join(" ")
+      : [p.model, sizeX].filter(Boolean).join(" ");
+    const tail = isSec
+      ? [p.color, p.windows].filter(Boolean).join(", ")
+      : [p.color, p.windows, p.track, p.radius].filter(Boolean).join(", ");
     const rows = [tail ? head + ", " + tail : head];
     (p.openerRows || []).forEach((r) => { const t = r.trim(); if (t) rows.push(t); });
     rows.push(p.closer || "No Opener");
     out.summary = noEmDash(rows.join("\n"));
 
     const sz1 = (p.size && (p.size.wIn || p.size.hIn)) ? fmtFeetSize(p.size) : sizeX;
-    const lines = [
+    const lines = isSec ? [
+      ["Clopay", p.model, sz1, secPos, "Replacement Section"].filter(Boolean).join(" "),
+      p.color ? "Color: " + p.color : "",
+      p.insulation || "",
+      p.windows || "",
+    ].filter((l) => l.trim() !== "") : [
       ["Clopay", p.model, sz1, "Garage Door"].filter(Boolean).join(" "),
       p.color ? "Color: " + p.color : "",
       p.insulation || "",
@@ -1682,7 +1711,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v2.1.5";
+    verEl.textContent = "QuotePro browser tool v2.1.6";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
@@ -1766,24 +1795,55 @@
   function classifyItems(items, allowGuess, models) {
     models = models || [];
     const TOTAL_WORDS = /\b(subtotal|grand total|order total|total due|balance due|amount due|total price)\b/i;
+    // A Pricing Details modal duplicates its product: same price, or
+    // the unit price behind the card's quantity-extended price. When
+    // the product's own card is on the page (matched by model), the
+    // modal copy is a duplicate; when it is not, the modal is the
+    // only source and its copy counts (the modal-only flow).
+    const keyOf = (label) => {
+      const t = String(label || "");
+      const hit = (models || []).filter((mm) => mm && mm.length >= 3).find((mm) =>
+        new RegExp("\\b" + mm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\b", "i").test(t));
+      return hit ? hit.toUpperCase() : "";
+    };
+    const cardKeys = new Set();
+    items.forEach((r) => {
+      if (!/Product\s*:/i.test(r.label || "") && !isPriceFor(r.label)) {
+        const k = keyOf(r.label);
+        if (k) cardKeys.add(k);
+      }
+    });
     const included = [];
     items.forEach((r) => {
-      if (TOTAL_WORDS.test(r.label) || isProductLineLabel(r.label)) { r.bucket = "total"; }
+      if (/Product\s*:/i.test(r.label || "") && cardKeys.has(keyOf(r.label))) { r.bucket = "dup"; }
+      else if (TOTAL_WORDS.test(r.label)) { r.bucket = "total"; }
       else included.push(r);
     });
-    if (included.length >= 3) {
-      const totalAll = included.reduce((s, r) => s + r.amount, 0);
-      const biggest = Math.max.apply(null, included.map((x) => x.amount));
-      for (let i = 0; i < included.length; i++) {
-        if (i === 0) continue; // totals render after their line items, never first
-        const r = included[i];
-        if (r.amount >= biggest && Math.abs(r.amount - (totalAll - r.amount)) < 0.015) {
-          r.bucket = "total";
-          included.splice(i, 1);
-          break;
-        }
+    // Per-product subtotal rows ride under the product line. Catch
+    // them by what they ARE - an amount equal to a subset sum of the
+    // other lines - not by their label: the old label-shape exclusion
+    // also ate the product cards themselves on pages whose cards lead
+    // with the product line (Weston's section cart, 2026-10-21: every
+    // line excluded, buckets empty, $0.00 total).
+    const rollupShape = (label) => /Product\s*:/i.test(label || "") ||
+      /^\s*\d+\s*'\s*\d*\s*"?\s*x\s*\d+\s*(?:'\s*\d*\s*)?"?\s*\|/i.test(label || "");
+    const subsetSum = (target, pool) => {
+      const a = pool.slice().sort((x, y) => Math.abs(y) - Math.abs(x));
+      const dfs = (i, sum, used) => {
+        if (used >= 2 && Math.abs(sum - target) < 0.015) return true;
+        if (i >= a.length) return false;
+        return dfs(i + 1, sum + a[i], used + 1) || dfs(i + 1, sum, used);
+      };
+      return dfs(0, 0, 0);
+    };
+    included.slice().sort((a, b) => b.amount - a.amount).forEach((cand) => {
+      if (cand.amount <= 0 || !rollupShape(cand.label)) return;
+      const pool = included.filter((r) => r !== cand).map((r) => r.amount);
+      if (pool.length >= 2 && subsetSum(cand.amount, pool)) {
+        cand.bucket = "total";
+        included.splice(included.indexOf(cand), 1);
       }
-    }
+    });
     // The door card's header carries the model number from the page's
     // "Product:" line(s) — the reliable door signal on multi-door orders.
     const modelRes = models
@@ -1794,14 +1854,17 @@
     const rest = [];
     let doorFound = false;
     included.forEach((r) => {
-      if (isWindowsLabel(r.label)) { r.bucket = "windows"; windows += r.amount; return; }
-      if (isPriceFor(r.label)) { rest.push(r); return; } // options are never the door
-      if (isDoorLabel(r.label) || isModelCard(r.label)) {
+      // The product's own card comes first: it carries the model, and
+      // its window/insulation words describe the product itself
+      // ("SOLID (NO WINDOWS)", "POLYSTYRENE") - they are not option
+      // lines. Option cards ("PRICE FOR ...") are never the door.
+      if (!isPriceFor(r.label) && (isDoorLabel(r.label) || isModelCard(r.label))) {
         r.bucket = "door";
         door += r.amount; // multi-door orders accumulate every door card
         doorFound = true;
         return;
       }
+      if (isWindowsLabel(r.label)) { r.bucket = "windows"; windows += r.amount; return; }
       rest.push(r);
     });
     let guessed = null;
@@ -1834,8 +1897,12 @@
     if (!s.rowCount) return "No priced lines found on this page \u2014 type the costs in manually.";
     const what = s.viaNet ? "Net Price line(s)" : "priced lines";
     const excl = (s.lines || []).filter((l) => l.bucket === "total").length;
+    const dup = (s.lines || []).filter((l) => l.bucket === "dup").length;
+    const bits = [];
+    if (excl) bits.push(excl + " subtotal" + (excl > 1 ? "s" : "") + " excluded");
+    if (dup) bits.push(dup + " duplicate" + (dup > 1 ? "s" : "") + " excluded");
     return "Read " + s.rowCount + " " + what + " off this page" +
-      (excl ? " (" + excl + " subtotal" + (excl > 1 ? "s" : "") + " excluded)" : "") +
+      (bits.length ? " (" + bits.join(", ") + ")" : "") +
       ". Verify before calculating" +
       (s.doorGuess ? " \u2014 door value is a guess (highlighted)." : ".");
   }
@@ -1991,6 +2058,25 @@
     const insulIn = mkField(installBox, "Insulation", prof.insulation);
     const trackIn = mkField(installBox, "Track", prof.track);
     const radiusIn = mkField(installBox, "Radius", prof.radius);
+    const sectionRow = document.createElement("div");
+    sectionRow.className = "qp-row";
+    const sectionLab = document.createElement("label");
+    sectionLab.textContent = "Section";
+    const sectionSel = document.createElement("select");
+    sectionSel.style.cssText = "flex:1;min-width:0;";
+    [["", "Full door"], ["Replacement", "Replacement section"],
+     ["Bottom", "Bottom replacement section"],
+     ["Intermediate", "Intermediate replacement section"],
+     ["Top", "Top replacement section"]].forEach(([v, t]) => {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = t;
+      sectionSel.appendChild(o);
+    });
+    sectionSel.value = prof.section || "";
+    sectionRow.appendChild(sectionLab);
+    sectionRow.appendChild(sectionSel);
+    installBox.appendChild(sectionRow);
     const closerRow = document.createElement("div");
     closerRow.className = "qp-row";
     const closerLab = document.createElement("label");
@@ -2059,6 +2145,7 @@
       insulation: insulIn.value.trim(),
       track: trackIn.value.trim(),
       radius: radiusIn.value.trim(),
+      section: sectionSel.value,
       closer: closerSel.value,
       titleOption: titleOptIn.value.trim(),
       openerRows: openerTa.value.split("\n"),
@@ -2084,6 +2171,7 @@
      titleOptIn, openerTa, svcTitleIn, svcSummaryTa].forEach((inp) =>
       inp.addEventListener("input", () => regen(false)));
     closerSel.addEventListener("change", () => regen(false));
+    sectionSel.addEventListener("change", () => regen(false));
 
     // Re-read the door profile off the page. The Pricing Details modal is
     // usually opened AFTER this panel initializes, so the first parse often
@@ -2092,6 +2180,7 @@
     const profInputs = {
       series: seriesIn, model: modelIn, size: sizeIn, color: colorIn,
       windows: winIn, insulation: insulIn, track: trackIn, radius: radiusIn,
+      section: sectionSel,
     };
     Object.keys(profInputs).forEach((name) => {
       profEdited[name] = false;
@@ -2112,6 +2201,9 @@
       set("insulation", p.insulation);
       set("track", p.track);
       set("radius", p.radius);
+      // Section is a select with a meaningful empty value (full door):
+      // assign directly so switching products clears it too.
+      if (!profEdited.section) sectionSel.value = p.section || "";
       regen(false);
       return true;
     };
@@ -2233,7 +2325,7 @@
         const row = document.createElement("div");
         row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;" +
           "padding:6px 10px;font-size:12px;border-bottom:1px solid #22262d;" +
-          (ln.bucket === "total" ? "opacity:.55;" : "");
+          (ln.bucket === "total" || ln.bucket === "dup" ? "opacity:.55;" : "");
         const lab = document.createElement("span");
         lab.style.cssText = "color:#9aa0ab;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;";
         lab.title = ln.label;
@@ -2245,7 +2337,8 @@
         amt.textContent = fmt$(ln.amount);
         const tag = document.createElement("span");
         tag.style.cssText = "font-size:10px;padding:2px 7px;border-radius:20px;background:#24282f;color:#9aa0ab;white-space:nowrap;";
-        tag.textContent = ln.bucket === "total" ? "total \u2014 excluded" : "\u2192 " + ln.bucket;
+        tag.textContent = ln.bucket === "total" ? "total \u2014 excluded"
+          : ln.bucket === "dup" ? "duplicate \u2014 excluded" : "\u2192 " + ln.bucket;
         right.appendChild(amt);
         right.appendChild(tag);
         row.appendChild(lab);
