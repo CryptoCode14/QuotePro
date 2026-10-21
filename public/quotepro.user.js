@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      2.1.4
+// @version      2.1.5
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -1117,9 +1117,18 @@
             ") rotate(" + (-deg).toFixed(1) + ") translate(" + (-cx) + " " + (-cy) + ")");
         }
       }
+      // The along-wall position is sampled coarsely (4px) mid-wall,
+      // where the silhouette is translation-invariant and a rewrite
+      // would repaint an identical path — but at full 1px resolution
+      // within flare reach of a corner, where the tip clamping makes
+      // the shape position-dependent: at 4px the tips visibly hopped
+      // in steps while the body glided (audit, 2026-10-21: 130px
+      // corner slide = 10 rewrites).
+      const nearCorner = edge && (alongPos < 300 || (alongTotal - alongPos) < 300);
+      const alongKey = nearCorner ? Math.round(alongPos) : Math.round(alongPos / 4);
       const sig = w + "|" + h + "|" + (edge || "") + "|" + Math.round(gap * 2) +
         "|" + Math.round((edge ? bleedCur : 0) * 100) + "|" + Math.round((edge ? tensionCur : 0) * 100) +
-        "|" + Math.round(alongPos / 4);
+        "|" + alongKey;
       if (sig === skinSig) return;
       skinSig = sig;
       skin.setAttribute("width", Math.round(w + SKIN_PAD * 2));
@@ -1673,7 +1682,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v2.1.4";
+    verEl.textContent = "QuotePro browser tool v2.1.5";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
