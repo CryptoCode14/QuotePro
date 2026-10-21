@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      2.1.1
+// @version      2.1.2
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -703,11 +703,11 @@
     .qp-dock-face { position: relative; z-index: 1; flex: 1 1 auto; min-width: 0;
       display: flex; flex-direction: row; align-items: center; gap: 11px;
       will-change: opacity, filter, transform; }
-    .qp-dock.qp-dock-v .qp-dock-face { flex-direction: column; gap: 9px;
+    .qp-dock.qp-dock-v .qp-dock-face { flex-direction: column; gap: 11px;
       justify-content: center; }
     .qp-dock::before, .qp-dock::after { display: none; }
-    .qp-dock.qp-dock-v { padding: 12px 7px;
-      box-sizing: border-box; min-height: 148px; }
+    .qp-dock.qp-dock-v { padding: 10px 10px 16px;
+      box-sizing: border-box; }
     .qp-dock.qp-dock-v .qp-dock-text { align-items: center; }
     .qp-dock.qp-dock-v .qp-dock-label { font-size: 8.5px; }
     .qp-dock.qp-dock-v .qp-dock-total { font-size: 12.5px; max-width: 78px; text-align: center; }
@@ -744,7 +744,7 @@
       max-width: 178px; line-height: 1.25; }
     .qp-dock.qp-dock-v .qp-dock-text { align-items: center; text-align: center; }
     .qp-dock.qp-dock-v .qp-dock-margin { font-size: 9.5px; }
-    .qp-dock.qp-dock-v .qp-dock-sub { max-width: 58px; white-space: normal;
+    .qp-dock.qp-dock-v .qp-dock-sub { max-width: 68px; white-space: normal;
       line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 7;
       -webkit-box-orient: vertical; }
     .qp-dock.qp-dock-v .qp-dock-totalrow { flex-direction: column; align-items: center;
@@ -821,13 +821,14 @@
     skin.appendChild(skinPath);
     dock.appendChild(skin);
     // Orientation follows the wall: the bar stands vertical on the side
-    // edges, lies horizontal on the top/bottom edges and when free. The
-    // vertical form is the SAME bar rotated: its length along the wall
-    // is the width the horizontal bar just had (tracked in dockLenH),
-    // so depth and width read identically in both orientations instead
-    // of the vertical collapsing into a squarish tab.
+    // edges, lies horizontal on the top/bottom edges and when free.
+    // Both forms hug their content with the SAME padding (the vertical
+    // padding is the horizontal's, rotated) — no forced length: an
+    // earlier design pinned the vertical bar's height to the
+    // horizontal bar's width, which left ~70px of dead padding under
+    // the wrapped content (Weston, 2026-10-21: "everything needs to
+    // be the same").
     let dockVertical = false;
-    let dockLenH = 0;
     /* ---- orientation morph ----
        Per the morph research (Dynamic Island recreations, GSAP Flip's
        default mode, Material container transform): never scale the
@@ -872,21 +873,15 @@
       // The target was measured in a single synchronous instant at
       // flip time; if the live natural size has drifted from it (a
       // retarget mid-flight), do NOT unpin into a jump — retarget the
-      // spring to the natural size and settle onto it. The natural
-      // size must be read in the TRUE resting configuration, floor
-      // included: reading it with the floor zeroed retargets the
-      // spring onto the bare content height (~170), and restoring
-      // the floor at the end then lands as a late ~84px jump — the
-      // v2.1.0 bigger/smaller bug. Unpin/read/re-pin inside one
-      // frame: no paint of the unpinned state can occur.
-      dock.style.minHeight = (dockVertical && dockLenH >= 100) ? dockLenH + "px" : "";
+      // spring to the natural size and settle onto it. Unpin/read/
+      // re-pin inside one frame: no paint of the unpinned state can
+      // occur.
       dock.style.width = "";
       dock.style.height = "";
       const natW = dock.offsetWidth, natH = dock.offsetHeight;
       if (Math.abs(natW - morph.w) > 1.5 || Math.abs(natH - morph.h) > 1.5) {
         dock.style.width = morph.w.toFixed(1) + "px";
         dock.style.height = morph.h.toFixed(1) + "px";
-        dock.style.minHeight = "0px";
         morph.tw = natW;
         morph.th = natH;
         morph.raf = requestAnimationFrame(morphStep);
@@ -916,20 +911,14 @@
         dock.style.height = h0 + "px";
       }
       dockVertical = v;
-      if (v) {
-        dock.classList.add("qp-dock-v");
-        if (dockLenH >= 100) dock.style.minHeight = dockLenH + "px";
-      } else {
-        dock.classList.remove("qp-dock-v");
-        dock.style.minHeight = "";
-      }
+      if (v) dock.classList.add("qp-dock-v");
+      else dock.classList.remove("qp-dock-v");
       if (!canMorph) return;
       dock.style.width = "";
       dock.style.height = "";
       const w1 = dock.offsetWidth, h1 = dock.offsetHeight;
       dock.style.width = w0 + "px";
       dock.style.height = h0 + "px";
-      dock.style.minHeight = "0px";
       const keep = morph;
       morph = {
         w: w0, h: h0, vw: keep ? keep.vw : 0, vh: keep ? keep.vh : 0,
@@ -1147,10 +1136,7 @@
     };
     const place = (el) => {
       if (busyEls.has(el)) return;
-      if (el === dock) {
-        setDockOrient(snappedEdge);
-        if (!dockVertical && dock.offsetWidth >= 100) dockLenH = dock.offsetWidth;
-      }
+      if (el === dock) setDockOrient(snappedEdge);
       const vw = window.innerWidth, vh = window.innerHeight;
       const w = el.offsetWidth || 60, h = el.offsetHeight || 60;
       let p;
@@ -1669,7 +1655,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v2.1.1";
+    verEl.textContent = "QuotePro browser tool v2.1.2";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
