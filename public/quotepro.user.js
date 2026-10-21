@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      1.9.0
+// @version      1.9.1
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -944,19 +944,16 @@
       // a droplet lets go. Wall-side corners flatten as the weld forms.
       const dockBlend = b * Math.max(0, Math.min(1, 1 - gap / 16));
       const Rw = Math.max(3, R * (1 - 0.85 * dockBlend));
-      // The neck is its own closed subpath unioned with the body (same
-      // fill — one silhouette, one shadow). Anchoring it on the flat
-      // edge segment alone starved it: the horizontal bar's wall edge
-      // is only 67px long and the corner radii eat most of that, so
-      // the first bridge rendered as a hair-thin spike. The blob's
-      // anchors may spread a few px PAST the body's ends — a meniscus
-      // climbing around the corners — and the wall patch may spread
-      // wider than the body, the way liquid wets a surface.
       // Tension pinch is nonlinear: a capillary neck at 60% of the
       // tear pull is a THREAD, not a slightly slimmer patch — linear
       // shrink factors (0.72/0.45) left a giant leaf stuck to the wall.
-      const wallHalf = (L / 2 + 12) * b * (0.45 + 0.55 * b) * Math.pow(1 - t, 2.6);
-      const bodyHalf = (L / 2 + 6) * b * (0.60 + 0.40 * b) * Math.pow(1 - t, 1.35);
+      // The shape reads the STRAIN (tension remapped t^0.7): the wall
+      // patch collapses fastest, the body patch is capped at 36% of
+      // the side — uncapped, a tall bar's neck attached along its
+      // whole side and the pull read as two slabs side by side.
+      const tS = Math.pow(t, 0.7);
+      const wallHalf = (L / 2 + 12) * b * (0.45 + 0.55 * b) * Math.pow(1 - tS, 2.2);
+      const bodyHalf = Math.min((L / 2 + 6) * b * (0.60 + 0.40 * b) * Math.pow(1 - tS, 1.1), L * 0.36);
       // Neck sides are cubics, not quadratics: the shared-control
       // quadratic lands on the wall at ~40 degrees — a thorn. These
       // handles make the curve LEAVE along the body's edge (a smooth
@@ -967,10 +964,42 @@
       // instead threw 100px+ handles on a 13px neck and the S-curves
       // wrapped the whole bar into a lens; fixed minimums dwarfed a
       // newborn tongue the same way from the other side.
-      const sh1 = Math.min(gap * 0.6, bodyHalf * 0.45 + 2);
-      const sh2 = Math.min(gap * 0.6, wallHalf * 0.45 + 2);
+      // Handle placement blends with the neck's aspect. A LONG neck
+      // (approach tongue) earns the meniscus shoulder: the exit
+      // handle sits OUTSIDE the anchor span, the curve leaves along
+      // the body's edge. A SHORT neck (tearing pull) must narrow
+      // monotonically: both handles sit INSIDE the span, pulled a
+      // touch toward the centre axis for the concave waist — an
+      // outside handle there bows the side into a convex ear, and a
+      // handle beyond the far anchor pokes a point at the junction.
+      const shoulder = Math.max(0, Math.min(1, (gap - 26) / 34));
+      const sh1 = Math.min(gap * 0.5, bodyHalf * 0.30);
+      const sh2 = Math.min(gap * 0.35, wallHalf * 0.30 + 1);
+      // ONE continuous trace: the neck is woven INTO the body's wall
+      // edge, never a separate closed subpath. v1.9.0 drew the neck as
+      // its own blob subpath unioned by fill — but SVG strokes paint
+      // EVERY subpath, so the path's hairline rim outlined the blob
+      // separately (and drew a seam line where it joined the body):
+      // on a pull the neck read as a bordered flap, a leftover piece,
+      // instead of the dock's own substance tearing. Body anchors
+      // clamp to the wall edge's straight run; when a patch outgrows
+      // it, the neck leaves from the corner itself — a meniscus
+      // wrapping the corner, still a single outline.
+      const a1 = Math.max(Rw + 0.5, Math.min(uc - bodyHalf, uc));
+      const a2 = Math.min(L - Rw - 0.5, Math.max(uc + bodyHalf, uc));
+      const w1 = uc - wallHalf, w2 = uc + wallHalf;
+      const c1Top = a1 + (w1 - a1) * 0.30 * (1 - shoulder) - sh1 * shoulder;
+      const c1Bot = a2 + (w2 - a2) * 0.30 * (1 - shoulder) + sh1 * shoulder;
+      const c2Top = w1 - sh2 * (0.35 + 0.65 * shoulder);
+      const c2Bot = w2 + sh2 * (0.35 + 0.65 * shoulder);
       const seg = [];
       seg.push(["M", Rw, 0]);
+      if (gap > 0.5) {
+        seg.push(["L", a1, 0]);
+        seg.push(["C", c1Top, -gap * 0.42, c2Top, -gap, w1, -gap]);
+        seg.push(["L", w2, -gap]);
+        seg.push(["C", c2Bot, -gap, c1Bot, -gap * 0.42, a2, 0]);
+      }
       seg.push(["L", L - Rw, 0]);
       seg.push(["Q", L, 0, L, Rw]);
       seg.push(["L", L, S - R]);
@@ -980,15 +1009,6 @@
       seg.push(["L", 0, Rw]);
       seg.push(["Q", 0, 0, Rw, 0]);
       seg.push(["Z"]);
-      if (gap > 0.5) {
-        seg.push(["M", uc - bodyHalf, 0]);
-        seg.push(["C", uc - bodyHalf - sh1, -gap * 0.15,
-          uc - wallHalf - sh2, -gap, uc - wallHalf, -gap]);
-        seg.push(["L", uc + wallHalf, -gap]);
-        seg.push(["C", uc + wallHalf + sh2, -gap,
-          uc + bodyHalf + sh1, -gap * 0.15, uc + bodyHalf, 0]);
-        seg.push(["Z"]);
-      }
       const toXY = (u, v) => {
         if (edge === "left") return [P + v, P + u];
         if (edge === "right") return [P + w - v, P + u];
@@ -1549,7 +1569,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v1.9.0";
+    verEl.textContent = "QuotePro browser tool v1.9.1";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
