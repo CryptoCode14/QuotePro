@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      2.1.8
+// @version      2.1.9
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -1749,7 +1749,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v2.1.8";
+    verEl.textContent = "QuotePro browser tool v2.1.9";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
@@ -2920,8 +2920,40 @@
     }
     return normLabel(el.getAttribute && el.getAttribute("placeholder")) || "";
   }
+  const normText = (s) => String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  function valuePrintOf(el) {
+    if (!el) return "";
+    const v = el.isContentEditable ? (el.innerText || el.textContent || "")
+      : (el.value != null ? el.value : "");
+    return normText(v).slice(0, 90);
+  }
+  // The line-item row a field lives in. ServiceTitan estimate tables
+  // hold many near-identical fields (every Description textarea in
+  // the column shares one label), so a mapping needs the row's own
+  // identity: the sibling cells' text plus the column header.
+  function rowInfoFor(el) {
+    if (!el || !el.closest) return null;
+    const row = el.closest("tr") || el.closest('[role="row"]');
+    if (!row) return null;
+    const cell = el.closest("td, th, [role='gridcell'], [role='cell']");
+    const cells = Array.prototype.slice.call(
+      row.querySelectorAll("td, th, [role='gridcell'], [role='cell']"));
+    const others = cells.filter((c) => c !== cell)
+      .map((c) => normText(c.innerText || c.textContent)).filter(Boolean);
+    let header = "";
+    const table = row.closest("table");
+    if (table && cell) {
+      const idx = cells.indexOf(cell);
+      const hrow = table.querySelector("thead tr") || table.querySelector("tr");
+      if (hrow && hrow !== row) {
+        const hcells = hrow.querySelectorAll("th, td, [role='columnheader'], [role='gridcell']");
+        if (hcells[idx]) header = normText(hcells[idx].innerText || hcells[idx].textContent);
+      }
+    }
+    return { cells: others.join(" | ").slice(0, 120), header };
+  }
   function describeField(el, openerEl) {
-    const d = { v: 2 };
+    const d = { v: 3 };
     if (el) {
       d.sel = buildSelector(el);
       d.tag = el.tagName.toLowerCase();
@@ -2932,6 +2964,15 @@
       d.ph = (el.getAttribute && el.getAttribute("placeholder")) || "";
       d.label = labelTextFor(el);
       if (el.readOnly || el.disabled) d.readonly = 1;
+      // Free-text fields (the estimate table's description boxes) are
+      // told apart by what the row says and what the box currently
+      // holds - the column label alone is shared by every row.
+      if (el.tagName === "TEXTAREA" || el.isContentEditable) {
+        const vp = valuePrintOf(el);
+        if (vp) d.val = vp;
+        const ri = rowInfoFor(el);
+        if (ri && ri.cells) { d.row = ri.cells; if (ri.header) d.col = ri.header; }
+      }
     }
     if (openerEl) {
       d.openerSel = buildSelector(openerEl);
@@ -2967,6 +3008,22 @@
     cands.forEach((c) => {
       let s = 0;
       if (direct && c === direct) s += 100;
+      if (desc.val && (c.tagName === "TEXTAREA" || c.isContentEditable)) {
+        const cv = valuePrintOf(c);
+        if (cv && cv === desc.val) s += 120;
+        else if (cv && desc.val.length >= 12 && cv.length >= 12 &&
+            (cv.indexOf(desc.val.slice(0, 40)) === 0 ||
+             desc.val.indexOf(cv.slice(0, 40)) === 0)) s += 70;
+      }
+      if (desc.row && (c.tagName === "TEXTAREA" || c.isContentEditable)) {
+        const ri = rowInfoFor(c);
+        if (ri && ri.cells) {
+          if (ri.cells === desc.row) s += 110;
+          else if (desc.row.length >= 12 &&
+              (ri.cells.indexOf(desc.row.slice(0, 40)) >= 0 ||
+               desc.row.indexOf(ri.cells.slice(0, 40)) >= 0)) s += 55;
+        }
+      }
       if (desc.id && c.id && c.id === desc.id) s += 90;
       if (desc.aria && c.getAttribute("aria-label") === desc.aria) s += 80;
       if (desc.label) {
@@ -2994,10 +3051,11 @@
   }
   // Fill via a descriptor; handles the click-to-edit opener flow. Calls
   // done(ok, detail) — detail says where it landed or why not.
-  function fillByDescriptor(desc, value, isText, done) {
+  function fillByDescriptor(desc, value, isText, done, onFilled) {
     const r = resolveField(desc);
     const doFillEl = (el) => {
       const ok = isText ? fillTextField(el, value) : (fillField(el, value) && readbackOk(el, value));
+      if (ok && onFilled) onFilled(el);
       const lab = (desc && desc.label) || "";
       done(!!ok, ok ? ('into "' + (lab || el.tagName.toLowerCase()) + '"') : "value did not stick \u2014 use Copy");
     };
@@ -3355,6 +3413,20 @@
             status.textContent = ok
               ? label + " filled " + detail + " \u2014 verify it registered."
               : label + ": " + detail + ".";
+          }, (el) => {
+            // The fill just rewrote the field's text: re-learn the
+            // fingerprint (and row) from the element as it now stands,
+            // so the next Fill finds this same box again.
+            if (desc && typeof desc === "object" &&
+                (el.tagName === "TEXTAREA" || el.isContentEditable)) {
+              const vp = valuePrintOf(el);
+              if (vp) desc.val = vp;
+              const ri = rowInfoFor(el);
+              if (ri && ri.cells) desc.row = ri.cells;
+              desc.v = 3;
+              map[tkey] = desc;
+              GM_setValue(STORE.fieldMap, map);
+            }
           });
         };
         tkeys.forEach((tk) => {
