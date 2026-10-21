@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         QuotePro Quick Estimate
 // @namespace    https://grandvalleygaragedoors.example/quotepro
-// @version      2.0.0
+// @version      2.1.0
 // @description  Pull dealer costs off the iStore page, run them through the QuotePro pricing API, and fill the results into ServiceTitan estimate fields.
 // @match        *://*/*
 // @run-at       document-idle
@@ -698,11 +698,16 @@
       padding: 10px 16px 10px 10px; border-radius: 22px; overflow: visible;
       background: transparent; box-shadow: none;
       cursor: grab; user-select: none; touch-action: none;
-      display: flex; flex-direction: row; align-items: center; gap: 11px;
+      display: flex;
       transition: opacity .2s var(--ease-out), filter .16s ease; }
+    .qp-dock-face { position: relative; z-index: 1; flex: 1 1 auto; min-width: 0;
+      display: flex; flex-direction: row; align-items: center; gap: 11px;
+      will-change: opacity, filter, transform; }
+    .qp-dock.qp-dock-v .qp-dock-face { flex-direction: column; gap: 9px;
+      justify-content: center; }
     .qp-dock::before, .qp-dock::after { display: none; }
-    .qp-dock.qp-dock-v { flex-direction: column; padding: 12px 7px; gap: 9px;
-      box-sizing: border-box; min-height: 148px; justify-content: center; }
+    .qp-dock.qp-dock-v { padding: 12px 7px;
+      box-sizing: border-box; min-height: 148px; }
     .qp-dock.qp-dock-v .qp-dock-text { align-items: center; }
     .qp-dock.qp-dock-v .qp-dock-label { font-size: 8.5px; }
     .qp-dock.qp-dock-v .qp-dock-total { font-size: 12.5px; max-width: 78px; text-align: center; }
@@ -823,9 +828,88 @@
     // of the vertical collapsing into a squarish tab.
     let dockVertical = false;
     let dockLenH = 0;
-    const setDockOrient = (edge) => {
+    /* ---- orientation morph ----
+       Per the morph research (Dynamic Island recreations, GSAP Flip's
+       default mode, Material container transform): never scale the
+       content — an invert-scale here would be 3.3x by 0.26 and would
+       grotesquely stretch text. Instead the SHELL springs its real
+       width/height (stiffness 300, damping 27 — about 2% overshoot,
+       settled in ~450ms) while the content face dips through a
+       blur/fade/scale valley, so the layout swap reads as one fluid
+       morph. Retargeting keeps the size velocity, so tearing free
+       mid-morph reverses without a hitch. */
+    let morph = null;
+    const morphStep = (ts) => {
+      if (!morph) return;
+      const dt = Math.min(0.033, Math.max(0.001, (ts - morph.last) / 1000));
+      morph.last = ts;
+      const K = 300, C = 27;
+      const steps = Math.max(1, Math.min(4, Math.round(dt / (1 / 240))));
+      const hh = dt / steps;
+      for (let i = 0; i < steps; i++) {
+        morph.vw += (-K * (morph.w - morph.tw) - C * morph.vw) * hh;
+        morph.w += morph.vw * hh;
+        morph.vh += (-K * (morph.h - morph.th) - C * morph.vh) * hh;
+        morph.h += morph.vh * hh;
+      }
+      dock.style.width = morph.w.toFixed(1) + "px";
+      dock.style.height = morph.h.toFixed(1) + "px";
+      const dw = Math.abs(morph.tw - morph.sw), dh = Math.abs(morph.th - morph.sh);
+      let p = 1;
+      if (dw + dh > 1) {
+        const rw = dw > 1 ? Math.abs(morph.tw - morph.w) / dw : 0;
+        const rh = dh > 1 ? Math.abs(morph.th - morph.h) / dh : 0;
+        p = 1 - Math.min(1, Math.max(rw, rh));
+      }
+      const dip = Math.sin(Math.PI * Math.min(1, Math.max(0, p)));
+      dockFace.style.opacity = (1 - 0.78 * dip).toFixed(3);
+      dockFace.style.filter = dip > 0.02 ? "blur(" + (5 * dip).toFixed(1) + "px)" : "";
+      dockFace.style.transform = "scale(" + (1 - 0.05 * dip).toFixed(3) + ")";
+      renderSkin();
+      const done = Math.abs(morph.tw - morph.w) < 0.6 && Math.abs(morph.th - morph.h) < 0.6 &&
+        Math.abs(morph.vw) < 9 && Math.abs(morph.vh) < 9;
+      if (!done) { morph.raf = requestAnimationFrame(morphStep); return; }
+      // The target was measured in a single synchronous instant at
+      // flip time; if the live natural size has drifted from it (a
+      // retarget mid-flight, a floor change), do NOT unpin into a
+      // jump — retarget the spring to the natural size and settle
+      // onto it. Unpin/read/re-pin inside one frame: no paint of the
+      // unpinned state can occur.
+      dock.style.width = "";
+      dock.style.height = "";
+      const natW = dock.offsetWidth, natH = dock.offsetHeight;
+      if (Math.abs(natW - morph.w) > 1.5 || Math.abs(natH - morph.h) > 1.5) {
+        dock.style.width = morph.w.toFixed(1) + "px";
+        dock.style.height = morph.h.toFixed(1) + "px";
+        morph.tw = natW;
+        morph.th = natH;
+        morph.raf = requestAnimationFrame(morphStep);
+        return;
+      }
+      morph = null;
+      dock.style.minHeight = (dockVertical && dockLenH >= 100) ? dockLenH + "px" : "";
+      dockFace.style.opacity = "";
+      dockFace.style.filter = "";
+      dockFace.style.transform = "";
+      // Reconcile with the snap state (events may have moved on
+      // mid-morph), then anchor from the resting rect so the closing
+      // place() reproduces this exact spot instead of jumping.
+      setDockOrient(snappedEdge);
+      const r = dock.getBoundingClientRect();
+      anchor = { fx: r.left / window.innerWidth, fy: r.top / window.innerHeight, edge: snappedEdge };
+      persist();
+      placeAll();
+    };
+    const setDockOrient = (edge, animate) => {
       const v = edge === "left" || edge === "right";
       if (v === dockVertical) return;
+      const w0 = dock.offsetWidth, h0 = dock.offsetHeight;
+      const canMorph = !!animate && !reducedMotion() && w0 >= 4 && h0 >= 4 &&
+        !dock.classList.contains("qp-hidden");
+      if (canMorph) {
+        dock.style.width = w0 + "px";
+        dock.style.height = h0 + "px";
+      }
       dockVertical = v;
       if (v) {
         dock.classList.add("qp-dock-v");
@@ -834,6 +918,20 @@
         dock.classList.remove("qp-dock-v");
         dock.style.minHeight = "";
       }
+      if (!canMorph) return;
+      dock.style.width = "";
+      dock.style.height = "";
+      const w1 = dock.offsetWidth, h1 = dock.offsetHeight;
+      dock.style.width = w0 + "px";
+      dock.style.height = h0 + "px";
+      dock.style.minHeight = "0px";
+      const keep = morph;
+      morph = {
+        w: w0, h: h0, vw: keep ? keep.vw : 0, vh: keep ? keep.vh : 0,
+        tw: w1, th: h1, sw: w0, sh: h0, last: performance.now(), raf: 0,
+      };
+      if (keep) cancelAnimationFrame(keep.raf);
+      morph.raf = requestAnimationFrame(morphStep);
     };
     const dockMark = document.createElement("span");
     dockMark.className = "qp-dock-mark";
@@ -863,8 +961,11 @@
     dockText.appendChild(dockLabel);
     dockText.appendChild(dockTotalRow);
     dockText.appendChild(dockSub);
-    dock.appendChild(dockMark);
-    dock.appendChild(dockText);
+    const dockFace = document.createElement("span");
+    dockFace.className = "qp-dock-face";
+    dockFace.appendChild(dockMark);
+    dockFace.appendChild(dockText);
+    dock.appendChild(dockFace);
     shadow.appendChild(dock);
     document.documentElement.appendChild(host);
 
@@ -1214,7 +1315,7 @@
       m.raf = requestAnimationFrame(motStep);
     };
     const doSnap = (el, m, edge, baseX, baseY) => {
-      if (el === dock) setDockOrient(edge);
+      if (el === dock) setDockOrient(edge, true);
       // Tear pull is measured from THIS baseline (the desired position
       // at the snap), not from the flush point: when the dock swaps
       // orientation at a side wall its width changes (254px horizontal
@@ -1268,7 +1369,7 @@
           engEdge = null;
           m.baseDesX = null;
           m.baseDesY = null;
-          if (el === dock) setDockOrient(null);
+          if (el === dock) setDockOrient(null, true);
           m.tx = desX;
           m.ty = desY;
           const KICK = 900; // the spec's +-18/frame impulse, in px/s
@@ -1546,7 +1647,7 @@
     // build?" answerable at a glance.
     const verEl = document.createElement("div");
     verEl.className = "qp-ver";
-    verEl.textContent = "QuotePro browser tool v2.0.0";
+    verEl.textContent = "QuotePro browser tool v2.1.0";
     panel.appendChild(verEl);
     // Start in the remembered state; the dock pill is the entry point.
     setDocked(GM_getValue(STORE.docked, true));
