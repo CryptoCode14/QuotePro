@@ -7,8 +7,16 @@
       "source": "/v1/(.*)"
     },
     {
+      "destination": "/privacy.html",
+      "source": "/privacy"
+    },
+    {
+      "destination": "/privacy.html",
+      "source": "/privacy-policy"
+    },
+    {
       "destination": "/index.html",
-      "source": "/((?!api/).*)"
+      "source": "/((?!api/|\\.env|\\.git).*)"
     }
   ],
   "version": 2
