@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — QuotePro</title>
+    <meta
+      name="description"
+      content="Privacy policy for QuotePro, the internal estimate-pricing tool for Grand Valley Garage Doors."
+    />
+    <style>
+      /* QuotePro brand tokens (src/index.css): tonal gray page, white
+         cards, Apple system blue accent, Geist/system-ui type. */
+      :root {
+        color-scheme: light;
+        --bg: #f5f5f7;
+        --surface: #ffffff;
+        --ink: #232323;
+        --muted: #6e6e6e;
+        --hairline: #e6e6e6;
+        --accent: #0071e3;
+        --shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.07);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #1a1a1a;
+          --surface: #2e2e2e;
+          --ink: #ededed;
+          --muted: #9e9e9e;
+          --hairline: #ffffff14;
+          --accent: #0a84ff;
+          --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px rgb(0 0 0 / 0.5);
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Geist", ui-sans-serif, system-ui, -apple-system,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        line-height: 1.6;
+      }
+      header {
+        position: sticky;
+        top: 0;
+        background: color-mix(in srgb, var(--bg) 80%, transparent);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--hairline);
+      }
+      .header-inner {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 0 24px;
+        height: 56px;
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+      .header-inner .name {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .header-inner .sub {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .header-inner a.back {
+        margin-left: auto;
+        font-size: 13px;
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .header-inner a.back:hover {
+        text-decoration: underline;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 32px 24px 64px;
+      }
+      .card {
+        background: var(--surface);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+        padding: 32px;
+      }
+      .logo {
+        display: block;
+        width: 56px;
+        height: auto;
+        margin-bottom: 16px;
+      }
+      h1 {
+        font-size: 26px;
+        line-height: 1.25;
+        margin: 0 0 4px;
+      }
+      .updated {
+        font-size: 13px;
+        color: var(--muted);
+        margin: 0 0 24px;
+      }
+      h2 {
+        font-size: 17px;
+        margin: 28px 0 8px;
+      }
+      p,
+      li {
+        font-size: 15px;
+      }
+      p {
+        margin: 0 0 12px;
+      }
+      ul {
+        margin: 0 0 12px;
+        padding-left: 22px;
+      }
+      a {
+        color: var(--accent);
+      }
+      footer {
+        margin-top: 28px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <span class="name">QuotePro</span>
+        <span class="sub">Grand Valley Garage Doors</span>
+        <a class="back" href="/">Back to QuotePro</a>
+      </div>
+    </header>
+    <main>
+      <div class="card">
+        <img
+          class="logo"
+          src="/large-logo.png"
+          alt="Grand Valley Garage Doors logo"
+        />
+        <h1>Privacy Policy</h1>
+        <p class="updated">Effective November 23, 2026</p>
+
+        <p>
+          QuotePro is an internal estimate-pricing tool for Grand Valley
+          Garage Doors employees. It is not a customer-facing service:
+          customers never create a QuotePro account and never enter
+          information into QuotePro directly.
+        </p>
+
+        <h2>What we collect</h2>
+        <ul>
+          <li>
+            <strong>Account information.</strong> When you sign in, we
+            store your email address and a password hash through Supabase
+            Auth. We never see your password.
+          </li>
+          <li>
+            <strong>Estimate data.</strong> Door, window, and miscellaneous
+            dealer costs, pricing variables, and calculated prices that you
+            enter, paste, or scan from a quote document (OCR). Saved quotes
+            are stored in our database so you can reopen, restore, and
+            delete them from History.
+          </li>
+          <li>
+            <strong>API keys.</strong> Keys you create for the pricing API
+            are stored as hashes only. The plaintext key is shown once, when
+            it is created, and never again.
+          </li>
+          <li>
+            <strong>On your device.</strong> A copy of your recent estimate
+            history is kept in your browser's local storage, and the
+            Tampermonkey userscript keeps its API key in Tampermonkey
+            storage on your own machine. Both stay on your device unless you
+            clear them.
+          </li>
+        </ul>
+
+        <h2>How we use it</h2>
+        <p>
+          We use this information only to run QuotePro: to sign you in, to
+          calculate estimate prices, and to save and retrieve your quotes.
+          We do not show ads, we do not sell your information, and we do
+          not share it with advertisers or data brokers.
+        </p>
+
+        <h2>Third-party services</h2>
+        <p>
+          QuotePro runs on Supabase, which hosts our authentication and
+          database. The Tampermonkey userscript runs in your browser on the
+          iStore and ServiceTitan pages you are already using for work; it
+          reads dealer costs from the iStore page and sends them to
+          QuotePro's own pricing API (<code>/v1/calculate</code>) to get
+          prices back. No other third party receives your estimate data.
+        </p>
+
+        <h2>Retention and deletion</h2>
+        <p>
+          Saved quotes are kept until you delete them from History in the
+          app. Your browser-local history is removed when you clear your
+          browser storage. To delete your account, contact your Grand
+          Valley Garage Doors administrator.
+        </p>
+
+        <h2>Questions</h2>
+        <p>
+          Questions about this policy? Contact your Grand Valley Garage
+          Doors administrator.
+        </p>
+
+        <footer>QuotePro — Grand Valley Garage Doors</footer>
+      </div>
+    </main>
+  </body>
+</html>
