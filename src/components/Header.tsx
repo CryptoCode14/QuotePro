@@ -51,6 +51,12 @@ export function Header({
         </div>
 
         <div className="flex items-center gap-0.5">
+          <a
+            href="/privacy"
+            className="px-2 text-[13px] text-muted transition-colors hover:text-ink"
+          >
+            Privacy
+          </a>
           <ThemeToggle />
           <button
             type="button"
